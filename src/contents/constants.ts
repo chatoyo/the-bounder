@@ -1,6 +1,10 @@
 /**
- * 游戏 Demo 常量定义
- * 所有资源 Key、场景 Key、游戏配置集中管理
+ * 游戏内容常量 —— 全项目唯一源。
+ *
+ * 归属原则：
+ *   - UI 无关、引擎无关的游戏世界数值/标识。
+ *   - engine/ 不应 import 本文件（engine 若需要 fallback，走自己的 SHELL_DEFAULTS）。
+ *   - runtime/ 不直接 import 具体事件 Key，业务层（scenes / pages）才用。
  */
 
 // ---- 场景 Key ----
