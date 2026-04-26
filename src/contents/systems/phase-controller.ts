@@ -32,6 +32,16 @@ export interface PhaseContext {
 
 export interface Phase {
   readonly id: PhaseId
+  /**
+   * 若为 true，GameplayScene 在本 phase 期间会跳过所有"推进世界"的系统
+   * （cameraDirector / parallax / screenBounds / player.update / bullets /
+   * chunk spawner / NPC proximity / running-only 检测）。输入和 phaseController
+   * 自身仍然运行 —— 这样对话 / 过场里玩家能按键推进，phase 内部也能倒计时切走。
+   *
+   * Dialogue / Respawn / 将来的 Cutscene 都应置 true。Running / Boss 应置 false
+   * （或不定义）。缺省视作 false。
+   */
+  readonly freezesWorld?: boolean
   enter(data?: unknown): void
   exit(): void
   update?(time: number, delta: number): void
@@ -66,6 +76,11 @@ export class PhaseController {
 
   getCurrentId(): PhaseId | null {
     return this.currentId
+  }
+
+  /** 当前 phase 实例；scene 侧用来读 `freezesWorld` 等声明式属性。 */
+  getCurrent(): Phase | null {
+    return this.current
   }
 
   destroy(): void {
@@ -110,10 +125,15 @@ export class RunningPhase implements Phase {
  */
 export class RespawnPhase implements Phase {
   readonly id: PhaseId = 'respawn'
+  readonly freezesWorld = true
 
   private elapsed = 0
-  /** 冻结时长（毫秒） */
-  private static readonly FREEZE_MS = 550
+  /**
+   * 冻结时长（毫秒）。Vue 侧的 DeathOverlay 订阅 PLAYER_DIED / PLAYER_RESPAWNED
+   * 在这个窗口里渲染"失败"面板；太短会让动画来不及展开，所以 1200ms 是"看清
+   * 失败提示 + 不打断玩家节奏"的折中。
+   */
+  private static readonly FREEZE_MS = 1200
 
   private ctx: PhaseContext
 
@@ -141,11 +161,13 @@ export class RespawnPhase implements Phase {
     const spawn = this.ctx.levelRunner.getActiveSpawn()
     this.ctx.player.respawn(spawn.x, spawn.y, spawn.id)
 
-    // 自动滚动模式下，相机可能已推过 checkpoint；回滚到玩家左侧 200px 防止立即被挤死
+    // 自动滚动模式下，相机可能已推过 checkpoint；把玩家横向居中后再 resume auto-scroll。
+    // 用 `cam.width / 2` 和 GameplayScene.create() 的初始 setScroll 保持一致，免得
+    // "首次出生居中 / 复活偏左" 两套手感。
     const cam = this.ctx.scene.cameras.main
     const bounds = cam.getBounds()
     const maxScrollX = Math.max(0, bounds.width - cam.width)
-    const targetScrollX = Math.min(Math.max(0, spawn.x - 200), maxScrollX)
+    const targetScrollX = Math.min(Math.max(0, spawn.x - cam.width / 2), maxScrollX)
     cam.setScroll(targetScrollX, cam.scrollY)
 
     this.ctx.controller.transition('running')

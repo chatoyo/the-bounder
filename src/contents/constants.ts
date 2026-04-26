@@ -38,6 +38,11 @@ export const EVENT_KEYS = {
   // ---- 关卡进度 (Phaser → Vue) ----
   CHECKPOINT_REACHED: 'checkpoint:reached',
   LEVEL_COMPLETED: 'level:completed',
+  /**
+   * 新关卡 create() 末尾触发。Vue 层的 LevelTransitionOverlay 据此关闭"准备下一关"
+   * 面板，也方便未来接入读取进度条 / 淡入动画等过渡 UI。
+   */
+  LEVEL_STARTED: 'level:started',
 
   // ---- 拾取 / 交互 (Phaser → Vue) ----
   PICKUP_COLLECTED: 'pickup:collected',
@@ -53,6 +58,30 @@ export const EVENT_KEYS = {
   BOSS_SPAWNED: 'boss:spawned',
   BOSS_HP_CHANGED: 'boss:hp-changed',
   BOSS_DEFEATED: 'boss:defeated',
+  /**
+   * Boss 击破后 ~2s 由 GameplayScene 发出的"结算"事件。Vue 侧的
+   * BossVictoryOverlay 据此展开庆祝面板；LEVEL_COMPLETED 随后触发 LevelTransitionOverlay。
+   */
+  BOSS_VICTORY: 'boss:victory',
+  /**
+   * Boss 过场视频播放结束（或被跳过）。从 `BossTransitionOverlay` 发出；
+   * `GameplayScene.completeLevel` 在 `nextLevelId === 'world-strip-boss'` 时
+   * 会等待本事件再 `scene.restart` 进入 boss 场景，替代原本固定 1600ms 的
+   * LevelTransitionOverlay 过渡计时。
+   */
+  BOSS_TRANSITION_ENDED: 'transition:boss-ended',
+  /**
+   * 终极 boss 击破后的"好结局"视频开播信号。从 `GameplayScene.onBossPhaseCleared`
+   * 在终极 boss（无 nextLevelId）结算时发出；`BossEndingOverlay` 据此
+   * 打开全屏覆盖层播放 `VIDEO_URLS.GOOD_ENDING`。
+   */
+  BOSS_ENDING_START: 'boss:ending-start',
+  /**
+   * 终极 boss 好结局视频播放结束（或被跳过 / 出错 / 看门狗超时）。由
+   * `BossEndingOverlay` 发出；`GameplayScene.onBossPhaseCleared` 收到后
+   * 再 emit `BOSS_VICTORY` 打开常驻结算面板。
+   */
+  BOSS_ENDING_ENDED: 'boss:ending-ended',
 
   // ---- 阶段 / 技能 (Phaser → Vue) ----
   PHASE_CHANGED: 'phase:changed',
@@ -76,8 +105,13 @@ export const GAME_CONFIG = {
 // 实现方式：相机向右匀速滚动；视觉上等价于"世界匀速向左流过屏幕"。
 // 玩家 X 轴被夹在相机可视窗口内（由 ScreenBoundsSystem 维护）。
 export const SCROLL_TUNING = {
-  /** 关卡默认滚动速度（像素/秒）；单关可以在 LevelDef.scroll.speed 覆盖 */
-  DEFAULT_SPEED: 90,
+  /**
+   * 关卡默认滚动速度（像素/秒）；单关可以在 LevelDef.scroll.speed 覆盖。
+   * 300 的节奏：玩家 MOVE_SPEED=390 仍能挣扎向前（相差 90 px/s）。
+   * 若改这里，记得把各关 scroll.speed 覆盖值和 PLAYER_TUNING.MOVE_SPEED
+   * 一起按比例调，否则玩家会被自动滚动压死。
+   */
+  DEFAULT_SPEED: 300,
   /** 玩家离左边屏幕边缘多少像素内会"贴墙"被压 */
   LEFT_BOUND_PADDING: 8,
   /** 玩家离右边屏幕边缘多少像素内会被挡住 */
@@ -100,9 +134,21 @@ export const PARALLAX_FACTORS = {
 
 // ---- 玩家可调参数（"vibe"：跳得软不软、飞得灵不灵，都在这里改） ----
 export const PLAYER_TUNING = {
-  MAX_HP: 3,
+  MAX_HP: 5,
   INVULN_MS: 1000,
-  MOVE_SPEED: 260,
+  /**
+   * 玩家按 A/D（左/右）时的水平速度。必须 > SCROLL_TUNING.DEFAULT_SPEED，
+   * 否则 auto-right 关卡里按住右键也跑不赢相机，会被挤死。
+   * 当前：390 > DEFAULT_SPEED(300)，盈余 ≈ 90 px/s 供玩家"挣扎向前"。
+   */
+  MOVE_SPEED: 390,
+  /**
+   * 无输入时玩家水平默认前进速度（相对当前世界滚动速度的倍率）。
+   * < 1 → 玩家默认比世界慢一点，相机会缓缓把他往左推；按 D/→ 才能真正在屏幕上向右推进。
+   * = 1 → 默认与世界同步（屏幕上不动）；= 0 → 老行为（不按键就原地踏步）。
+   * 只在 `CameraDirector` 处于 auto-right 模式时生效；follow/locked 模式下为 0。
+   */
+  BASE_FORWARD_RATIO: 0.8,
   JUMP_VELOCITY: -560,
   /** 松开跳键时若仍在上升，纵速乘以该值 —— 实现"可变跳跃高度" */
   JUMP_CUT_MULTIPLIER: 0.45,
@@ -118,13 +164,22 @@ export const PLAYER_TUNING = {
   FIRE_COOLDOWN_MS: 220,
 
   // ---- 飞行能力（FlyCapability 用） ----
-  /** 飞行水平最高速 */
+  /**
+   * 飞行时无水平输入的"巡航速度"（= 世界滚动速度 × 该比率）。
+   * 1.0 = 在屏幕上悬停不动（玩家与世界同速）；< 1 会被相机推向左缘；
+   * > 1 会主动向右跑赢相机。
+   */
+  FLY_IDLE_RATIO: 1.0,
+  /** 飞行水平最高速 相对 巡航速度 的偏移上限 */
   FLY_SPEED_X: 320,
   /** 飞行垂直最高速 */
   FLY_SPEED_Y: 300,
   /** 飞行加速度（按键按下时从 0 到 max 的爬升） */
   FLY_ACCEL: 2200,
-  /** 松开按键后的阻尼（越大越干脆） */
+  /**
+   * 水平 / 垂直 idle 时对"目标速度"的收敛系数（每帧保留的倍数；越大越飘）。
+   * vx 的目标是 cruiseSpeed * FLY_IDLE_RATIO，vy 的目标是 0。
+   */
   FLY_DAMP: 0.82,
 } as const
 
@@ -140,6 +195,77 @@ export const CAMERA_TUNING = {
 export const POOL_SIZES = {
   PLAYER_BULLETS: 32,
   ENEMY_BULLETS: 48,
+  /** 同时存活的"小飞兵"上限；超过后新 spawn 会返 null */
+  FLYING_ENEMIES: 12,
+  /**
+   * 同时存活的"Matrix 代码弹幕"上限。不走常规 sprite pool，而是一组 `Phaser.GameObjects.Text`
+   * 对象；此数字决定内存里缓存多少条活体 Text（用完回收再用）。屏幕上同时看到的字符
+   * 数一般不超过这个值的一半，因为大多数已飞出视口会被 cull。
+   */
+  CODE_DANMAKU: 40,
+} as const
+
+// ---- 小飞兵 / Flying enemy 调参 ----
+// 小体型空中敌人：从右侧视口边外刷出，水平匀速向左漂（世界空间 vx < 0 → 相机同时
+// 右滚时玩家看起来是迎面飞来），沿 sin 波做垂直摆动。1 HP 1 接触伤害。
+export const FLYING_ENEMY_TUNING = {
+  /** 同时存活上限；也是 pool maxSize（与 POOL_SIZES.FLYING_ENEMIES 同步） */
+  POOL_SIZE: 12,
+  /** 两次 spawn 之间的间隔（ms）；越小越密集 */
+  SPAWN_INTERVAL_MS: 1600,
+  /** 世界空间水平速度下限（像素/秒，负值 = 向左） */
+  VX_MIN: -110,
+  /** 世界空间水平速度上限 */
+  VX_MAX: -60,
+  /** 垂直摆动幅度（像素） */
+  SWAY_AMPLITUDE: 28,
+  /** 垂直摆动周期（秒） */
+  SWAY_PERIOD: 1.5,
+  /** spawn 时距相机右边缘的水平外推（像素） */
+  SPAWN_MARGIN: 40,
+  /** spawn Y 区间（像素，世界空间 → 对 auto-right 关卡相当于屏幕 Y） */
+  SPAWN_Y_MIN: 120,
+  SPAWN_Y_MAX: 380,
+  /** 超过相机左侧 x 多少像素后回池（防止被玩家追回打中） */
+  CULL_OFF_LEFT: 80,
+  /** 接触玩家伤害 */
+  CONTACT_DAMAGE: 1,
+} as const
+
+// ---- Matrix 代码弹幕调参 ----
+// "Boss 战之前"的氛围敌人：沿着世界自右向左 / 自右上至左下 / 自上而下飞过，
+// 每个都是一个绿色等宽字符（片假名 + ASCII 符号），像《黑客帝国》里的代码雨
+// 飘过屏幕。接触玩家造成 1 点伤害并被回收；玩家子弹也能把它们打掉。
+// 只在 `world-strip-demo` 这类"通往 boss 战的关卡"生效，boss phase 进入时清场。
+export const CODE_DANMAKU_TUNING = {
+  /** 同时存活上限（= 池尺寸，与 POOL_SIZES.CODE_DANMAKU 同步） */
+  POOL_SIZE: 40,
+  /** 两次 spawn 之间的间隔（ms）；越小越密集；600 = 每秒约 1.67 条 */
+  SPAWN_INTERVAL_MS: 800,
+  /** 单次 spawn 发射的字符数（小束/丛刷） */
+  SPAWN_BURST: 2,
+  /** 弹幕"飞行速度"基准（像素/秒，世界空间）；方向另外算 */
+  SPEED_MIN: 120,
+  SPEED_MAX: 320,
+  /** spawn 距相机可视区边缘的外推（像素），保证入场时玩家看不见"凭空出现" */
+  SPAWN_MARGIN: 40,
+  /** 弹幕的垂直 spawn Y 区间（相机本地坐标，随后加上 camera.scrollY） */
+  SPAWN_Y_MIN: 40,
+  SPAWN_Y_MAX: 520,
+  /** 字符最大存活时间；即便一直没离开视口也会过期回收 */
+  LIFETIME_MS: 4500,
+  /** 离开相机视窗多远像素就回收（防止一直挂着占池） */
+  CULL_OFF_MARGIN: 120,
+  /** 接触玩家伤害 */
+  CONTACT_DAMAGE: 1,
+  /** 渲染颜色（Matrix 荧光绿） */
+  COLOR: '#39ff7a',
+  /** 偶发"亮白"字符的概率（每次 spawn 掷骰），增加节奏感 */
+  HIGHLIGHT_CHANCE: 0.15,
+  /** 高亮字符颜色 */
+  HIGHLIGHT_COLOR: '#d8ffe6',
+  /** 字号（px），用 monospace 字体 */
+  FONT_PX: 20,
 } as const
 
 // ---- Phase 阶段 Id（单例 string 字面量用于 FSM / EventBus 载荷） ----
@@ -199,3 +325,68 @@ export const PICKUP_IDS = {
   FLIGHT_ORB: 'flight-orb',
   HP_CRYSTAL: 'hp-crystal',
 } as const
+
+// ---- Audio asset keys ----
+// 约定：key 在 BootScene.preload 里 `this.load.audio(key, url)`，播放侧用
+// `this.sound.add(key, ...)`；url 走 Vite 的 `public/` 根（见 public/bgms/*）。
+// 音乐文件本身放 public/bgms/*.mp3，菜单音乐由 Vue 页面直接用 HTMLAudio 播放，
+// 所以 ASSET_KEYS.AUDIO 这里只收录需要 Phaser 管理的音频。
+export const ASSET_KEYS = {
+  AUDIO: {
+    /** Level 01 BGM —— "Rust City"，GameplayScene 里循环播放 */
+    BGM_LEVEL_01: 'bgm-level-01',
+    /** Boss 场景 BGM —— ok6.mp3，world-strip-boss 关卡专用 */
+    BGM_BOSS: 'bgm-boss',
+  },
+} as const
+
+// ---- BGM 资源 URL（Vue 侧 + Phaser 侧共用） ----
+// 放在常量表里便于将来统一改路径 / 接入 hashing。
+export const BGM_URLS = {
+  /** 主菜单（home-page）BGM；Vue 层直接 new Audio(...)  */
+  MENU: '/bgms/menu.mp3',
+  /** Level 01 BGM；BootScene.preload 里交给 Phaser loader */
+  LEVEL_01: '/bgms/1-rust-city.mp3',
+  /** Boss 场景 BGM；BootScene.preload 里交给 Phaser loader */
+  BOSS: '/bgms/ok6.mp3',
+} as const
+
+// ---- 音量 / 淡入淡出 调参 ----
+export const AUDIO_TUNING = {
+  /** 菜单 BGM 默认音量（0-1） */
+  MENU_VOLUME: 0.5,
+  /** Level 01 BGM 默认音量（0-1） */
+  GAME_VOLUME: 0.45,
+} as const
+
+// ---- 视频资源 URL（仅供 Vue 层的 <video> overlay 使用，不走 Phaser loader） ----
+// 放在 public/videos/ 下；与 BGM_URLS 对应，让将来统一改路径 / 接入 hashing 时
+// 有一个集中点。视频 overlay 的生命周期完全在 Vue 侧，不需要 Phaser 预加载。
+export const VIDEO_URLS = {
+  /** 主菜单 → 游戏之间的第一段过场动画（IntroVideoOverlay 按顺序播放） */
+  INTRO_1: '/videos/intro_1.mp4',
+  /** 主菜单 → 游戏之间的第二段过场动画 */
+  INTRO_2: '/videos/intro_2.mp4',
+  /**
+   * world-strip-demo 通关后载入 world-strip-boss 之前播放的 boss 过场动画。
+   * 由 `BossTransitionOverlay` 播放；播完发 `BOSS_TRANSITION_ENDED` → GameplayScene
+   * 接到后 `scene.restart` 进入 boss 场景。
+   */
+  BOSS_TRANSITION: '/videos/boss_transition.mp4',
+  /**
+   * 终极 boss 击破后的"好结局"过场动画。由 `BossEndingOverlay` 播放；
+   * `GameplayScene.onBossPhaseCleared` 在终极 boss（无 nextLevelId）结算时
+   * 先发 `BOSS_ENDING_START` → 视频播完发 `BOSS_ENDING_ENDED` →
+   * 再 emit `BOSS_VICTORY` 打开常驻结算面板。
+   */
+  GOOD_ENDING: '/videos/good_ending.mp4',
+} as const
+
+/**
+ * 触发 BossTransitionOverlay 的 level id —— 关卡 exit 的 `nextLevelId` 命中此值时，
+ * 播放 boss_transition.mp4 代替常规 LevelTransitionOverlay。
+ *
+ * 与 `LEVEL_WORLD_STRIP_BOSS.id` 保持一致；作为字符串字面量放在这里方便 UI 层
+ * 不必 import `data/levels/*`（避免把 LevelDef 构建逻辑拖进 Vue 覆盖层）。
+ */
+export const BOSS_TRANSITION_LEVEL_ID = 'world-strip-boss'

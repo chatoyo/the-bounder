@@ -81,7 +81,19 @@ export class BulletPool {
   }
 
   destroy(): void {
-    this.group.clear(true, true)
-    this.group.destroy(true)
+    // 与 FlyingEnemyPool 同样的保护：scene shutdown 时 Phaser 4 可能先把 group
+    // 的 children Set 置空，再触发我们注册的 SHUTDOWN 监听器。此时 `group.clear`
+    // 会抛 `undefined is not an object (evaluating 'children.forEach')`，一旦
+    // throw 会中断 handleShutdown 剩下的清理 + Phaser 的下一 scene.create。
+    if (!this.group) return
+    try {
+      const g = this.group as unknown as { children?: { size?: number } }
+      if (g.children && typeof g.children.size === 'number') {
+        this.group.clear(true, true)
+        this.group.destroy(true)
+      }
+    } catch (err) {
+      console.warn('[BulletPool] destroy 忽略 Phaser 内部 teardown 异常:', err)
+    }
   }
 }

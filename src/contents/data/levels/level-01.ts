@@ -2,9 +2,15 @@
  * Level 01 —— "草原晨跑"。
  *
  * 玩法意图：
- *   - 滚动模式 auto-right：相机每秒向右 ~90px 推进（SCROLL_TUNING.DEFAULT_SPEED），
+ *   - 滚动模式 auto-right：相机每秒向右 ~300px 推进（SCROLL_TUNING.DEFAULT_SPEED），
  *     视觉上世界从右向左流过屏幕。玩家必须不断右侧/上方跳跃避障。
- *   - 二段跳默认开启；关卡中段有一颗 flight-orb，拾取后可以 4 方向自由飞行。
+ *   - **水平无限循环（loop: true）**：3600px 的关卡块随相机推进无限重复；
+ *     LevelRunner 把 platforms / hazards / checkpoints 滑动窗口式地前后生成。
+ *     checkpoint 在每个 chunk 里得到独立的 `@${k}` id，所以跑得再远也一直有
+ *     respawn 点。pickup、NPC 只在原始位置出现一次。
+ *   - 二段跳默认开启；关卡前段有一颗 flight-orb，拾取后可以 4 方向自由飞行。
+ *   - Mid-boss "影之使徒" 在 x=2950 登场 —— 一次性事件（firedBossTriggers 保证），
+ *     打完继续无限跑。没有 level-exit：本关永不转场。
  *   - 三层视差：天空（最慢）→ 远山（慢）→ 近山+树（略慢）；midground 为平台/hazard；
  *     前景草叶（~1.35x）强化速度感。
  *
@@ -21,6 +27,7 @@ export const LEVEL_01: LevelDef = {
   width: 3600,
   height: 600,
   biome: BIOME_IDS.GRASS,
+  loop: true,
   scroll: {
     mode: 'auto-right',
     // speed 省略 → 用 SCROLL_TUNING.DEFAULT_SPEED
@@ -99,10 +106,12 @@ export const LEVEL_01: LevelDef = {
     { type: 'hazard', x: 2150, y: 544, width: 60, height: 16 },
     { type: 'hazard', x: 2900, y: 544, width: 120, height: 16 },
 
-    // ----------------- 检查点（按 x 排） -----------------
+    // ----------------- 检查点（稀疏 2 点，每 chunk 各自复制一份） -----------------
+    // loop 模式下 LevelRunner 会把它们作为 "周期模板"，在 chunk k 生成 `@${k}` 变体，
+    // 所以真正的可用 respawn 是 start@0 / pre-boss@0 / start@1 / pre-boss@1 ...
+    // 从纯模板角度，本关卡有 2 个 spawn 点，间隔 2750 像素（~13 秒）。
     { type: 'checkpoint', id: 'start', x: 100, y: 536 },
-    { type: 'checkpoint', id: 'mid-1', x: 1600, y: 536 },
-    { type: 'checkpoint', id: 'mid-2', x: 2450, y: 536 },
+    { type: 'checkpoint', id: 'pre-boss', x: 2850, y: 536 },
 
     // ----------------- NPC: 紫袍老人（开场对话 + 可选赠予飞行） -----------------
     {
@@ -123,12 +132,15 @@ export const LEVEL_01: LevelDef = {
       y: 360,
     },
 
-    // ----------------- 关卡终点 → 进入 level-02 -----------------
+    // ----------------- Boss trigger —— "影之使徒"，在 x=2950 触发 -----------------
+    // BossPhase 不再锁相机：auto-scroll 继续，boss 从屏幕右侧滑入并跟随视口。
+    // 击破后 2s → BOSS_VICTORY 结算面板 → LevelTransitionOverlay → 载入 `nextLevelId`。
+    // firedBossTriggers 保证本次关卡生命周期内只触发一次。
     {
-      type: 'level-exit',
-      id: 'exit',
-      x: 3500,
-      y: 300,
+      type: 'boss-trigger',
+      id: 'shadow-trigger',
+      x: 2950,
+      bossId: 'boss-shadow',
       nextLevelId: 'level-02',
     },
   ],

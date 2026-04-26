@@ -206,6 +206,40 @@ if (player.body!.blocked.down) { /* on ground */ }
 
 **v4 improvements:** Fixed group collision detection, overhauled static group refresh.
 
+#### ⚠️ Gotcha — `collider`/`overlap` callback argument order (sprite-vs-group)
+
+For **(sprite, group)** or **(group, sprite)**, Phaser **always** invokes the callback with `(spriteGO, groupMemberGO)` — even when you passed the group first. Internally `collideHandler` swaps the pair into `collideSpriteVsGroup(sprite, group)` before dispatching, so the "group-first" call order does **not** translate to "group-first" callback args.
+
+```typescript
+// ❌ Bug: the first arg is the boss sprite, NOT a bullet.
+this.physics.add.overlap(bulletsGroup, bossSprite, (bullet, boss) => {
+    bullet.setActive(false); // actually disables the BOSS — bullets pass through
+    // and player ↔ boss overlap also breaks because the shared body is now disabled
+});
+
+// ✅ Correct: either pass sprite first (matches callback order for readers)
+this.physics.add.overlap(bossSprite, bulletsGroup, (_boss, bullet) => {
+    bullet.setActive(false);
+});
+
+// ✅ Also correct: keep (group, sprite) but name the args honestly
+this.physics.add.overlap(bulletsGroup, bossSprite, (_boss, bullet) => { ... });
+```
+
+Callback ordering rules, by pair:
+
+| Call | Callback args |
+|---|---|
+| `overlap(sprite, sprite)` | `(sprite1, sprite2)` — preserves call order |
+| `overlap(sprite, group)` | `(sprite, groupMember)` |
+| `overlap(group, sprite)` | `(sprite, groupMember)` — **same as above; sprite always first** |
+| `overlap(groupA, groupB)` | `(groupAMember, groupBMember)` — iterates outer → inner |
+| `overlap(array, array)` | `(arrayAItem, arrayBItem)` — matches call order |
+
+Same rule applies to `collider()` and the process callback (`processCallback`) — both receive identical argument order.
+
+Symptom this causes: **"one hit disables the enemy entirely"** — you thought you were disabling the projectile's body, but you actually disabled the enemy's body, so physics bails early in `collideSpriteVsGroup` on subsequent frames (`!bodyA.enable` short-circuit), breaking every overlap that touches that enemy sprite.
+
 ### Matter.js (unchanged API)
 
 ```typescript
@@ -415,6 +449,7 @@ const v = new Phaser.Math.Vector2(x, y);
 - **`DynamicTexture` requires `.render()`.** If textures come out blank, call `.render()` after draw commands.
 - **SpriteGPULayer** sprites are non-interactive — no input, no physics.
 - **Custom WebGL pipelines from v3** must be rewritten as RenderNodes.
+- **Arcade `collider`/`overlap` callback args always go `(sprite, groupMember)`** regardless of how you ordered them in the call. `overlap(group, sprite, cb)` gives you `cb(sprite, groupMember)`, **not** `cb(groupMember, sprite)`. See the Physics → Arcade gotcha above.
 
 ## Reference Files
 

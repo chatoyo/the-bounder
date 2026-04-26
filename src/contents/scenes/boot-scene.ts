@@ -1,6 +1,65 @@
 import * as Phaser from 'phaser'
-import { SCENE_KEYS, GAME_CONFIG } from '../constants'
+import { ASSET_KEYS, BGM_URLS, GAME_CONFIG, SCENE_KEYS } from '../constants'
+import { WORLD_STRIP_DEMO_DEF } from '../data/levels/world-strip-demo'
+import { WORLD_STRIP_BOSS_DEF } from '../data/levels/world-strip-boss'
+import type { WorldStripImageDef, WorldStripLoopDef } from '../types'
 import { useGame } from '@/runtime'
+
+/**
+ * 所有需要 preload 图片素材的 world-strip 关卡定义集合。
+ * 加新的 world-strip 关卡时：① 在 `src/contents/data/levels/` 加文件；
+ * ② 在 `WORLD_STRIP_LEVELS` 收录；③ 在这个数组里追加 def，BootScene 自动
+ * 迭代 load.image；④ 按需在 `generateWorldStripTextures` 的 palettes 里
+ * 补占位色（有 url 的图片不会走占位通道，所以其实可以不补）。
+ */
+const ALL_WORLD_STRIP_DEFS: readonly WorldStripLoopDef[] = [
+  WORLD_STRIP_DEMO_DEF,
+  WORLD_STRIP_BOSS_DEF,
+]
+
+/**
+ * 用 Graphics 画一个 7-段数字（占位图里用来区分是第几张 strip 图片）。
+ * (x, y) = 左上角；w / h = 数字外接框。
+ */
+function drawBigDigit(
+  g: Phaser.GameObjects.Graphics,
+  digit: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): void {
+  const thick = Math.max(2, Math.floor(h / 10))
+  // 段落顺序：a(顶) b(右上) c(右下) d(底) e(左下) f(左上) g(中)
+  const segs: Record<string, boolean[]> = {
+    '0': [true, true, true, true, true, true, false],
+    '1': [false, true, true, false, false, false, false],
+    '2': [true, true, false, true, true, false, true],
+    '3': [true, true, true, true, false, false, true],
+    '4': [false, true, true, false, false, true, true],
+    '5': [true, false, true, true, false, true, true],
+    '6': [true, false, true, true, true, true, true],
+    '7': [true, true, true, false, false, false, false],
+    '8': [true, true, true, true, true, true, true],
+    '9': [true, true, true, true, false, true, true],
+  }
+  const s = segs[digit] ?? segs['0']
+  const halfH = h / 2
+  // a
+  if (s[0]) g.fillRect(x + thick, y, w - 2 * thick, thick)
+  // b
+  if (s[1]) g.fillRect(x + w - thick, y + thick, thick, halfH - thick)
+  // c
+  if (s[2]) g.fillRect(x + w - thick, y + halfH, thick, halfH - thick)
+  // d
+  if (s[3]) g.fillRect(x + thick, y + h - thick, w - 2 * thick, thick)
+  // e
+  if (s[4]) g.fillRect(x, y + halfH, thick, halfH - thick)
+  // f
+  if (s[5]) g.fillRect(x, y + thick, thick, halfH - thick)
+  // g
+  if (s[6]) g.fillRect(x + thick, y + halfH - thick / 2, w - 2 * thick, thick)
+}
 
 const game = useGame()
 
@@ -16,6 +75,7 @@ const game = useGame()
  *   - 拾取：`pickup-flight` / `pickup-hp`
  *   - Boss：`boss-hulk` / `boss-wisp` / `boss-serpent`
  *   - 敌人子弹：`enemy-bullet`
+ *   - 小飞兵（空中敌人）：`enemy-flyer`
  *
  * 真素材接入时，把 generateTexture 换成 `this.load.image(key, url)` 即可，key 不变。
  */
@@ -42,6 +102,45 @@ export class BootScene extends Phaser.Scene {
       progressBar.destroy()
       progressBox.destroy()
     })
+
+    // ---- 音频：真实文件走 Phaser loader（占位纹理仍在 create() 里 generateTexture） ----
+    this.load.audio(ASSET_KEYS.AUDIO.BGM_LEVEL_01, BGM_URLS.LEVEL_01)
+    this.load.audio(ASSET_KEYS.AUDIO.BGM_BOSS, BGM_URLS.BOSS)
+
+    // ---- World-strip 真实素材：迭代所有 strip 关卡（demo + boss），凡是声明了 url 的都 preload ----
+    // 未声明 url 的仍由 create() 里的 generateWorldStripTextures 生成占位纹理。
+    // 重复 textureKey 的图片（例如 demo 里 1.png 被 world-strip-1 / world-strip-4 两次引用）
+    // 由第一次 load 决定；set 去重避免 Phaser 收到同 key 重复 load 报 warn。
+    const loadedStripKeys = new Set<string>()
+    for (const def of ALL_WORLD_STRIP_DEFS) {
+      for (const img of def.images) {
+        if (!img.url) continue
+        if (loadedStripKeys.has(img.textureKey)) continue
+        this.load.image(img.textureKey, img.url)
+        loadedStripKeys.add(img.textureKey)
+      }
+    }
+
+    // ---- 玩家 sprite：真实素材（跑步 5 帧 + 静态跳跃）----
+    // 没有 idle 状态 —— 玩家始终在跑；跳跃用单帧静态图。
+    // Key 约定：player-run-1..5 对应 public/sprites/player/1.png..5.png；
+    // player-jump 对应 jump.png。动画在 create() 里注册为 'player-run'。
+    for (let i = 1; i <= 5; i++) {
+      this.load.image(`player-run-${i}`, `/sprites/player/${i}.png`)
+    }
+    this.load.image('player-jump', '/sprites/player/jump.png')
+
+    // ---- 玩家 boss-场景专属 sprite：站在浮空平台上 ----
+    // Boss 关卡里玩家被强制装备飞行能力，视觉上应当"漂在平台上向前飞"。
+    // 该贴图只在 world-strip-boss 关卡通过 Player.useStaticSprite 切入，
+    // 其它场景不使用；走 `load.image` 让 Phaser 预缓存。
+    this.load.image('player-floating-platform', '/pics/floating-platform.png')
+
+    // ---- Boss 真素材：`colossus` 变体（终章 Lovecraftian 机械章鱼）----
+    // 只要文件存在，就把它注册成 'boss-colossus'；create() 里的
+    // generateBossTextures 会检查 textures.exists('boss-colossus') 跳过占位生成，
+    // 文件缺失时 create() 会退回到一个深红色椭圆占位图保证关卡可跑。
+    this.load.image('boss-colossus', '/sprites/boss/boss.png')
   }
 
   create(): void {
@@ -52,7 +151,39 @@ export class BootScene extends Phaser.Scene {
     this.generatePickupTextures()
     this.generateBossTextures()
     this.generateEnemyTextures()
+    this.generateWorldStripTextures()
+    this.registerPlayerAnimations()
     game.switchToScene(SCENE_KEYS.GAMEPLAY)
+  }
+
+  // =========================================================================
+  // Player animations —— 真素材一次性注册到全局 AnimationManager
+  // =========================================================================
+  //
+  // Phaser 的 anims 注册到 scene.anims 后会被 AnimationManager 全局持有，
+  // 后续所有 scene 都能直接 anims.play('player-run')。所以在 BootScene 注册一次
+  // 即可，不用每次进 GameplayScene 重新 create。
+  //
+  // 手感参数：
+  //   - frameRate ：每秒多少帧（12 = 典型 2D 跑步节奏；觉得跑太"快"就往下调到 10，
+  //                 跑太"慢"就往上调到 14）
+  //   - repeat -1：无限循环
+  //
+  // 跳跃没有动画 —— Player 空中时 setTexture('player-jump') 贴静态图。
+  private registerPlayerAnimations(): void {
+    if (this.anims.exists('player-run')) return // 幂等：scene.restart 不会重复注册
+    this.anims.create({
+      key: 'player-run',
+      frames: [
+        { key: 'player-run-1' },
+        { key: 'player-run-2' },
+        { key: 'player-run-3' },
+        { key: 'player-run-4' },
+        { key: 'player-run-5' },
+      ],
+      frameRate: 8,
+      repeat: -1,
+    })
   }
 
   // =========================================================================
@@ -60,14 +191,9 @@ export class BootScene extends Phaser.Scene {
   // =========================================================================
 
   private generateCoreTextures(): void {
-    // 玩家：32×48 亮蓝色方块 + 白眉毛显示朝向
-    const p = this.make.graphics({ x: 0, y: 0 })
-    p.fillStyle(0x4488ff, 1)
-    p.fillRect(0, 0, 32, 48)
-    p.fillStyle(0xffffff, 1)
-    p.fillRect(20, 10, 6, 4)
-    p.generateTexture('player', 32, 48)
-    p.destroy()
+    // 玩家纹理由 preload() 中的 this.load.image('player-run-1' / ... / 'player-jump')
+    // 直接提供真实 sprite —— 不再生成占位方块。
+    // 跑步动画在 registerPlayerAnimations() 里注册为 'player-run'。
 
     // 通用平台兜底（没 biome 时用）
     const pf = this.make.graphics({ x: 0, y: 0 })
@@ -409,8 +535,181 @@ export class BootScene extends Phaser.Scene {
       g.generateTexture('boss-serpent', 128, 96)
       g.destroy()
     }
+    // colossus: 真素材兜底（只有 preload 里 `load.image('boss-colossus', ...)` 失败时才会走这条路）
+    // 真素材加载成功后 textures.exists('boss-colossus') === true → 直接跳过，不覆盖真图。
+    // 占位图尺寸 580×420 与期待的真素材相近，所以 BossEntity 的 scale + hitbox 配置
+    // 在占位 / 真图间切换不会产生剧烈视觉跳变。
+    if (!this.textures.exists('boss-colossus')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const W = 580
+      const H = 420
+      // 外围暗红光晕
+      g.fillStyle(0x3a0808, 0.4)
+      g.fillEllipse(W / 2, H / 2, W * 0.95, H * 0.75)
+      // 主体暗红椭圆
+      g.fillStyle(0x5a1010, 1)
+      g.fillEllipse(W / 2, H / 2, W * 0.7, H * 0.55)
+      // 中心机械核 + 红光
+      g.fillStyle(0x222222, 1)
+      g.fillRect(W / 2 - 70, H / 2 - 90, 140, 180)
+      g.fillStyle(0xcc1020, 1)
+      g.fillRect(W / 2 - 18, H / 2 - 70, 36, 140)
+      g.fillStyle(0xff4040, 1)
+      g.fillRect(W / 2 - 6, H / 2 - 50, 12, 100)
+      g.generateTexture('boss-colossus', W, H)
+      g.destroy()
+    }
   }
 
+  // =========================================================================
+  // World-strip 占位图 —— 按 WORLD_STRIP_DEMO_DEF 生成 3 张长条背景图
+  // =========================================================================
+  //
+  // 每张图：
+  //   - 顶部到 (height - groundHeight) 画天空渐变（每张图用不同色调便于区分）。
+  //   - 下方 groundHeight 像素画实心地面 + 上沿一条草/碎石亮线。
+  //   - 每 200px 画一条浅色竖线 + 文字替代（此处用粗竖线），帮助视觉认路。
+  //   - 即将被下一张图覆盖的 overlap 区域（右侧 overlapNext 像素）叠一层
+  //     半透明红色条纹，让"哪段将被覆盖"一目了然（当第二张图画在其上时
+  //     会完全被盖住，看不到；这是给调试视角 / 不加载第二张图时看的）。
+  //
+  // 真素材接入时把本函数整个删掉，改成 preload 里 this.load.image('world-strip-1', url)。
+  private generateWorldStripTextures(): void {
+    // 三张图各分一套配色，方便肉眼区分 "我正跑到哪张图"
+    const palettes = [
+      // image-1：黎明草原
+      {
+        skyTop: 0x2a3a66,
+        skyBottom: 0xf0c48a,
+        groundBody: 0x4a3220,
+        groundTop: 0x66b43d,
+        accent: 0x88dd66,
+        label: '1',
+      },
+      // image-2：正午冷色
+      {
+        skyTop: 0x4a78b8,
+        skyBottom: 0xb7d7f0,
+        groundBody: 0x5a6070,
+        groundTop: 0x9cbfd7,
+        accent: 0xc0d8ea,
+        label: '2',
+      },
+      // image-3：黄昏橙色
+      {
+        skyTop: 0x3a1a50,
+        skyBottom: 0xe07a3a,
+        groundBody: 0x3a2010,
+        groundTop: 0xf4a460,
+        accent: 0xffd38a,
+        label: '3',
+      },
+    ] as const
+
+    // 兼容所有 strip 关卡：对每张没有真实素材的图都生成占位纹理。
+    // 占位纹理的 palette 按"本 strip 内第几张图"循环取色，方便肉眼区分相邻图片。
+    for (const def of ALL_WORLD_STRIP_DEFS) {
+      def.images.forEach((imgDef, idx) => {
+        if (this.textures.exists(imgDef.textureKey)) return
+        const palette = palettes[idx % palettes.length]
+        this.generateWorldStripImage(imgDef, def.height, palette)
+      })
+    }
+  }
+
+  private generateWorldStripImage(
+    def: WorldStripImageDef,
+    imageHeight: number,
+    palette: {
+      skyTop: number
+      skyBottom: number
+      groundBody: number
+      groundTop: number
+      accent: number
+      label: string
+    },
+  ): void {
+    const g = this.make.graphics({ x: 0, y: 0 })
+    const W = def.width
+    const H = imageHeight
+
+    // ---- 1. 天空渐变（skyTop → skyBottom）----
+    const [rTop, gTop, bTop] = [
+      (palette.skyTop >> 16) & 0xff,
+      (palette.skyTop >> 8) & 0xff,
+      palette.skyTop & 0xff,
+    ]
+    const [rBot, gBot, bBot] = [
+      (palette.skyBottom >> 16) & 0xff,
+      (palette.skyBottom >> 8) & 0xff,
+      palette.skyBottom & 0xff,
+    ]
+    for (let y = 0; y < H; y++) {
+      const t = y / H
+      const r = Math.round(rTop + (rBot - rTop) * t)
+      const gg = Math.round(gTop + (gBot - gTop) * t)
+      const b = Math.round(bTop + (bBot - bTop) * t)
+      g.fillStyle((r << 16) | (gg << 8) | b, 1)
+      g.fillRect(0, y, W, 1)
+    }
+
+    // ---- 2. 每段地面（按 sections 画；没写 section 的区域默认用 section[0] 的厚度兜底）----
+    // section 只覆盖作者写到的范围（可能故意不覆盖最后 overlap 部分）；
+    // 为了让占位图看起来"整条都有地面"，没写 section 的区域用第一个 section 的厚度。
+    const fallbackH = def.sections[0]?.groundHeight ?? 0
+    // 画地面：先画一条满幅兜底地面，再在每个 section 上覆盖"本段实际厚度"的地面。
+    if (fallbackH > 0) {
+      const topY = H - fallbackH
+      g.fillStyle(palette.groundBody, 1)
+      g.fillRect(0, topY, W, fallbackH)
+      g.fillStyle(palette.groundTop, 1)
+      g.fillRect(0, topY, W, 4)
+    }
+    for (const sec of def.sections) {
+      const topY = H - sec.groundHeight
+      g.fillStyle(palette.groundBody, 1)
+      g.fillRect(sec.startX, topY, sec.endX - sec.startX, sec.groundHeight)
+      g.fillStyle(palette.groundTop, 1)
+      g.fillRect(sec.startX, topY, sec.endX - sec.startX, 5)
+    }
+
+    // ---- 3. 参考线：每 200px 一条竖线 + 右端边界线 ----
+    g.lineStyle(1, palette.accent, 0.4)
+    for (let x = 0; x < W; x += 200) {
+      g.beginPath()
+      g.moveTo(x, 0)
+      g.lineTo(x, H)
+      g.strokePath()
+    }
+
+    // ---- 4. 图片左上角画一个"标签方块"便于识别是哪张图（纯占位；真素材时删） ----
+    g.fillStyle(palette.accent, 0.9)
+    g.fillRect(20, 20, 80, 80)
+    g.fillStyle(0x000000, 0.8)
+    g.fillRect(24, 24, 72, 72)
+    g.fillStyle(palette.accent, 1)
+    // 用像素块拼一个"1/2/3"：8×12 的粗体数字
+    drawBigDigit(g, palette.label, 40, 34, 32, 52)
+
+    // ---- 5. overlap 区域叠红色斜线（只在本图右端最后 overlapNext 像素；提示"将被下一张盖住"） ----
+    if (def.overlapNext > 0) {
+      const overlapStart = W - def.overlapNext
+      // 红色半透明底
+      g.fillStyle(0xff4040, 0.15)
+      g.fillRect(overlapStart, 0, def.overlapNext, H)
+      // 几条斜线
+      g.lineStyle(2, 0xff6060, 0.5)
+      for (let o = 0; o < def.overlapNext + H; o += 40) {
+        g.beginPath()
+        g.moveTo(overlapStart + o, 0)
+        g.lineTo(overlapStart + o - H, H)
+        g.strokePath()
+      }
+    }
+
+    g.generateTexture(def.textureKey, W, H)
+    g.destroy()
+  }
   private generateEnemyTextures(): void {
     // enemy-bullet: 紫色圆点
     const g = this.make.graphics({ x: 0, y: 0 })
@@ -420,5 +719,29 @@ export class BootScene extends Phaser.Scene {
     g.fillCircle(5, 5, 2)
     g.generateTexture('enemy-bullet', 10, 10)
     g.destroy()
+
+    // enemy-flyer: 28×20 的小飞兵（尖刺双翼 + 红色眼点 + 深紫身体）
+    // 体型故意做得比玩家(32×48)小、比子弹(8×4)大，保证子弹能精准命中但不显杂乱。
+    const f = this.make.graphics({ x: 0, y: 0 })
+    // 身体：紫黑椭圆
+    f.fillStyle(0x2a1b45, 1)
+    f.fillEllipse(14, 10, 14, 10)
+    // 翅膀：左右三角
+    f.fillStyle(0x6a4fbf, 1)
+    f.fillTriangle(6, 10, 0, 2, 2, 12)
+    f.fillTriangle(22, 10, 28, 2, 26, 12)
+    // 翅膀高光
+    f.fillStyle(0xb299ff, 1)
+    f.fillTriangle(6, 10, 2, 4, 3, 11)
+    f.fillTriangle(22, 10, 26, 4, 25, 11)
+    // 尖角
+    f.fillStyle(0xe8d8ff, 1)
+    f.fillTriangle(12, 4, 14, 0, 16, 4)
+    // 红色眼点
+    f.fillStyle(0xff3355, 1)
+    f.fillRect(11, 9, 2, 2)
+    f.fillRect(15, 9, 2, 2)
+    f.generateTexture('enemy-flyer', 28, 20)
+    f.destroy()
   }
 }

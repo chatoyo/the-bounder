@@ -24,6 +24,7 @@ const DIALOGUE_MASK: Set<ActionId> = new Set<ActionId>([
 
 export class DialoguePhase implements Phase {
   readonly id: PhaseId = PHASE_IDS.DIALOGUE
+  readonly freezesWorld = true
 
   private ctx: PhaseContext
   private runner: DialogueRunner

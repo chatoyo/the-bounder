@@ -3,7 +3,7 @@
  *
  * 设定：
  *   - biome: space（深紫 + 电路高光地块；搭配夜空 + 飘云的视差）
- *   - auto-right 滚动速度略高（110px/s）
+ *   - auto-right 滚动速度略高（360px/s，比 DEFAULT_SPEED=300 再快 20%）
  *   - 玩家进入时已 equip 飞行（由 scene.init.unlockedSkills 携带）
  *   - 中段一位红甲 NPC 警告玩家 boss；过 NPC 后是 boss-trigger → BossPhase
  *   - boss 死后 level-exit 触发 → 循环回 level-01（`nextLevelId: 'level-01'`）
@@ -22,7 +22,8 @@ export const LEVEL_02: LevelDef = {
   biome: BIOME_IDS.SPACE,
   scroll: {
     mode: 'auto-right',
-    speed: 110,
+    // 比 DEFAULT_SPEED(300) 再快一点，保留 level-02 "更凶险" 的设计意图
+    speed: 360,
   },
   background: [
     // 夜空 —— 带星点
@@ -121,20 +122,25 @@ export const LEVEL_02: LevelDef = {
     },
 
     // ----------------- Boss trigger -----------------
+    // BossPhase 不再锁相机；boss 从右侧滑入。击破 → 2s → BOSS_VICTORY 结算 →
+    // LevelTransitionOverlay → 回到 level-01（demo 循环）。
     {
       type: 'boss-trigger',
       id: 'shadow-trigger',
       x: 2830,
       bossId: 'boss-shadow',
+      nextLevelId: 'level-01',
     },
 
-    // ----------------- 关卡终点（boss 死后触发） -----------------
+    // ----------------- 备用关卡终点 -----------------
+    // boss 击破后已经直接走 nextLevelId → 这个 level-exit 在新流程下走不到；
+    // 保留作为"万一玩家绕过了 boss"的兜底 & 未来 non-boss 结束关卡的写法范例。
     {
       type: 'level-exit',
       id: 'exit',
       x: 3600,
       y: 300,
-      nextLevelId: 'level-01', // 循环回第一关（demo 收尾）
+      nextLevelId: 'level-01',
     },
   ],
 }

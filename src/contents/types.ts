@@ -39,6 +39,12 @@ export interface IGameplaySceneData {
   levelId?: string
   /** 进入本关时玩家已解锁的 skill 集合（跨关卡持久化，例如飞行） */
   unlockedSkills?: SkillId[]
+  /**
+   * 是否由上一关 completeLevel → scene.restart 跳转而来。Vue 侧的
+   * LevelTransitionOverlay 需要这个标记来决定过渡面板的淡出时机：只有真正"从上
+   * 一关转场过来"时才要等 LEVEL_STARTED 再关面板。
+   */
+  fromTransition?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +110,11 @@ export interface PlatformSegmentDef {
   height: number
   /** 可选 biome 覆盖；不填继承 LevelDef.biome */
   biome?: BiomeId
+  /**
+   * 隐藏默认的 biome TileSprite 视觉，只保留不可见的碰撞体。
+   * 用于"美术已经把地面画在世界底图里"的关卡（见 WorldStripSystem）。
+   */
+  invisible?: boolean
 }
 
 export interface HazardSegmentDef {
@@ -146,7 +157,13 @@ export interface PickupSegmentDef {
   y: number
 }
 
-/** Boss 触发段：玩家进入 x 之后切到 BossPhase，同时停止自动滚动 */
+/**
+ * Boss 触发段：玩家进入 x 之后切到 BossPhase。
+ *
+ * 注：BossPhase 不再停止自动滚动 —— 世界保持流动，boss 从屏幕右侧"登场"并跟随
+ * 相机保持在视口内。boss 被击破后进入 2s 静默 + BOSS_VICTORY 结算面板，再走
+ * LEVEL_COMPLETED → LevelTransitionOverlay → 载入 `nextLevelId`。
+ */
 export interface BossTriggerSegmentDef {
   type: 'boss-trigger'
   id: string
@@ -154,6 +171,12 @@ export interface BossTriggerSegmentDef {
   x: number
   /** Boss 数据 id；查 data/bosses/ */
   bossId: string
+  /**
+   * boss 被击破后要载入的下一关 id；不填则沿用老行为：
+   * - loop 关卡：停留继续跑（不触发结算）；
+   * - 非 loop 关卡：从 segments 里找第一个 `level-exit` 的 nextLevelId 兜底。
+   */
+  nextLevelId?: string
 }
 
 /** 关卡终点：接触后切 LEVEL_COMPLETED + 过渡到下一关 */
@@ -177,13 +200,32 @@ export type SegmentDef =
 
 export interface LevelDef {
   readonly id: string
-  /** 关卡总宽度（像素），作相机/世界边界 */
+  /**
+   * 关卡总宽度（像素）。非 loop 模式作相机 / 世界边界；loop 模式下是"单个重复块"的宽度
+   * （除非用 `chunkWidth` 覆盖）。
+   */
   readonly width: number
   readonly height: number
   /** 关卡主题；LevelRunner 据此选贴图变体 */
   readonly biome: BiomeId
   /** 滚动策略；缺省 'auto-right' */
   readonly scroll?: LevelScrollDef
+  /**
+   * 水平无限循环 flag。true 时 LevelRunner 把 platforms / hazards / checkpoints
+   * 当作"周期块"，随相机推进滑动窗口式地前后生成；checkpoint 在每个 chunk 获得
+   * `${id}@${k}` 的唯一 id，spawnById 永久保留用于 respawn。
+   *
+   * pickups / npcs / boss-triggers / level-exits 仍然只在原始坐标出现一次
+   * （它们本来就是单次触发语义）。"无限关卡"与"会不会转场到下一关"是正交的：
+   *   - 想纯粹无限跑：关卡就别写 level-exit。
+   *   - 想跑一段再转场：正常写 level-exit，会在触碰后跳转 nextLevelId。
+   */
+  readonly loop?: boolean
+  /**
+   * loop 模式下的单块宽度。缺省 = `width`。把它设得小于 `width` 会在 [0, chunkWidth)
+   * 范围内重复，超出的 segment 会在原始 x 位置生成但不会循环。
+   */
+  readonly chunkWidth?: number
   /** 玩家初始出生点（若不指定，则使用首个 checkpoint） */
   readonly spawn?: { x: number; y: number }
   /** 背景视差图层（从远到近）；midground 本身不在这里描述 */
@@ -272,8 +314,13 @@ export interface BossDef {
   /** Boss 初始出现的世界 x / y（通常是 boss 房中央） */
   readonly spawnX: number
   readonly spawnY: number
-  /** 视觉变体（placeholder 时期决定颜色/形状） */
-  readonly sprite?: 'hulk' | 'wisp' | 'serpent'
+  /**
+   * 视觉变体。
+   * - `hulk` / `wisp` / `serpent`：BootScene.generateBossTextures 生成的占位方块（96×96 / 128×96）。
+   * - `colossus`：真素材（`public/sprites/boss/boss.png`）—— Lovecraftian 机械章鱼终章
+   *   boss；尺寸远大于占位方块，BossEntity 会按 per-variant 配置 setScale + 收紧 hitbox。
+   */
+  readonly sprite?: 'hulk' | 'wisp' | 'serpent' | 'colossus'
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +356,14 @@ export interface CheckpointReachedPayload {
 export interface LevelCompletedPayload {
   levelId: string
   nextLevelId?: string
+}
+
+export interface LevelStartedPayload {
+  levelId: string
+  /** 显示用关卡名；来自 LevelDef.id 的人性化转写（缺省等于 id） */
+  displayName?: string
+  /** 是否由上一关转场过来（首次进入 = false，scene.restart 过来 = true） */
+  fromTransition: boolean
 }
 
 export interface PickupCollectedPayload {
@@ -359,6 +414,17 @@ export interface BossDefeatedPayload {
   bossId: string
 }
 
+/**
+ * BOSS 击破后 ~2s 的"结算面板"入参。
+ * nextLevelId 缺省时面板展示"无后续关卡"文案（loop 关卡 + 未指定 nextLevelId 的
+ * boss-trigger 会落到此分支，但实际上 GameplayScene 也不会 emit 这个事件）。
+ */
+export interface BossVictoryPayload {
+  bossId: string
+  displayName: string
+  nextLevelId?: string
+}
+
 export interface PhaseChangedPayload {
   from: PhaseId | null
   to: PhaseId
@@ -374,4 +440,120 @@ export interface SkillEquippedPayload {
 
 export interface SkillRevokedPayload {
   id: SkillId
+}
+
+// ---------------------------------------------------------------------------
+// World-strip 循环（变宽图片拼接 + 每图独立地面轮廓）
+// ---------------------------------------------------------------------------
+//
+// 场景：美术提供一串长条底图（固定高度，变宽），每两张相邻图片之间有一段像素
+// 级的 overlap（后一张盖在前一张右边缘之上）。跑酷关卡按顺序放它们；最后一张
+// 放完后循环回第一张。每张图片在自己的本地 x 空间里声明若干"地面段"
+// （section：[startX, endX) + groundHeight），这些段被翻译成不可见的 AABB
+// 碰撞矩形给玩家踩。
+//
+// 翻译规则：
+//   - 图 i 在 chunk 空间里占据 [leftX_i, rightX_i) = [leftX_i, leftX_i + width_i)
+//   - 图 i 之后紧接的图 i+1 从 leftX_i + width_i - overlapNext_i 开始；图 i+1
+//     会盖在图 i 的右侧 overlapNext_i 像素上。
+//   - 因此图 i 的"所有权"范围只到 leftX_{i+1}；落在 [leftX_{i+1}, rightX_i) 的
+//     section 会被自动裁掉（视觉上被下一张图覆盖）。
+//   - 最后一张图的所有权范围到 chunkWidth（即回到图 0 前的最后一像素）。
+//
+// buildWorldStripLevel() 把上述 WorldStripLoopDef 编译成 LevelDef（loop=true,
+// chunkWidth=sum(width - overlapNext)）+ 一组 invisible platform segments。
+// WorldStripSystem 负责按 chunk 实例化实际的 Phaser.GameObjects.Image。
+
+/** 一段地面轮廓（在本地图片坐标系里，原点为图片左上角）。 */
+export interface WorldStripGroundSection {
+  /** 本图内的局部 x 起点（包含） */
+  readonly startX: number
+  /** 本图内的局部 x 终点（不含） */
+  readonly endX: number
+  /** 地面厚度（从图片底边向上，像素）。玩家脚底的 y = image.y + (height - groundHeight) */
+  readonly groundHeight: number
+}
+
+/** World-strip 中的一张图片。 */
+export interface WorldStripImageDef {
+  /** Phaser 贴图 key（BootScene 里生成或 load.image 加载） */
+  readonly textureKey: string
+  /**
+   * 可选：真实素材 URL（例如 `/pics/1.png`）。
+   *   - 有值：BootScene.preload 里 `this.load.image(textureKey, url)` 加载；
+   *     WorldStripSystem 会用 `setDisplaySize(width, strip.height)` 将贴图
+   *     缩放到声明的 width × height（处理原图分辨率 ≠ 显示尺寸的情况）。
+   *   - 无值：回退到 BootScene.generateWorldStripTextures 生成占位纹理。
+   */
+  readonly url?: string
+  /** 在关卡世界里的显示宽度（像素）。可以 < 或 > 贴图原生宽度 —— 会被缩放。 */
+  readonly width: number
+  /**
+   * 本图右边缘被下一张图盖住的像素数（显示空间）。下一张图从
+   * `thisImage.leftX + width - overlapNext` 开始。
+   * 最后一张图的 overlapNext 决定循环回到第一张图时的接缝。
+   */
+  readonly overlapNext: number
+  /**
+   * 地面段列表（在本图的显示坐标系内；即若贴图会被缩放，section.x / endX / groundHeight
+   * 用的是缩放后的像素数）。落在图 i+1 覆盖范围内的段会被自动裁剪或丢弃。
+   */
+  readonly sections: readonly WorldStripGroundSection[]
+}
+
+/** 一整圈 world-strip 循环。 */
+export interface WorldStripLoopDef {
+  /** 对应生成的 LevelDef.id */
+  readonly id: string
+  /** 所有图片共享的高度（像素） */
+  readonly height: number
+  /** 按显示顺序的图片列表。最后一张之后循环回第一张（仅当 `loop !== false`）。 */
+  readonly images: readonly WorldStripImageDef[]
+  /** 可选：覆盖 LevelDef.scroll（默认 auto-right, speed=SCROLL_TUNING.DEFAULT_SPEED） */
+  readonly scroll?: LevelScrollDef
+  /** 可选：LevelDef.biome（隐藏平台时 biome 只影响"无关的" fallback，一般填 grass 即可） */
+  readonly biome?: BiomeId
+  /** 可选：玩家初始 spawn；不填由 builder 基于第一张图的第一个 section 自动推导 */
+  readonly spawn?: { readonly x: number; readonly y: number }
+  /**
+   * 是否无限循环（默认 true）。false 时 `buildWorldStripLevel` 产生 `LevelDef.loop=false`：
+   * 图片序列只播放一遍，相机推到世界右端即停（auto-right 模式下自动 clamp）。适合
+   * "跑到终点 → level-exit → 下一关" 的一次性关卡（例如把终点接到 boss 专用场景）。
+   * 物理段（platforms / hazards / checkpoints）相应只在原始坐标物化一份，不再按 chunk 复制。
+   */
+  readonly loop?: boolean
+  /**
+   * 可选：额外 segments（boss-trigger / pickup / npc / level-exit / 多余 checkpoint…）。
+   * 这些会原样附加到 LevelDef.segments 末尾，坐标用 chunk 空间（= 第 0 圈的世界 x）。
+   * 注意 boss-trigger 的 `firedBossTriggers` 去重是幂等的：loop 关卡里一局只触发一次，
+   * 之后的圈次不再生成 boss。
+   */
+  readonly extraSegments?: readonly SegmentDef[]
+}
+
+/** build 之后每张图在 chunk 空间的摆放信息。 */
+export interface WorldStripPlacement {
+  readonly imageIdx: number
+  readonly textureKey: string
+  readonly width: number
+  /** 图片左上角在 chunk 空间的 x */
+  readonly leftX: number
+  /** 图片右边缘（不含）在 chunk 空间的 x = leftX + width */
+  readonly rightX: number
+  /** 本图"实际生效"的 x 区间：[ownedStartX, ownedEndX)。地面段都会裁到这里。 */
+  readonly ownedStartX: number
+  readonly ownedEndX: number
+}
+
+/** buildWorldStripLevel() 的产物：LevelDef + 摆放元数据（后者给 WorldStripSystem 用）。 */
+export interface BuiltWorldStripLevel {
+  readonly level: LevelDef
+  readonly strip: WorldStripLoopDef
+  readonly placements: readonly WorldStripPlacement[]
+  readonly chunkWidth: number
+  /**
+   * 是否循环。true = WorldStripSystem 滑动窗口式复制图片；false = 只在 chunk 0 铺一遍。
+   * 与 `level.loop` 同步，独立存储方便 WorldStripSystem 用时不必反向查 LevelDef。
+   */
+  readonly loop: boolean
 }
