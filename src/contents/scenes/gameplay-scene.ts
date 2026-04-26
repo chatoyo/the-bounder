@@ -21,6 +21,7 @@ import * as Phaser from 'phaser'
 import {
   ASSET_KEYS,
   AUDIO_TUNING,
+  BOSS_TRANSITION_LEVEL_ID,
   CAPABILITY_IDS,
   EVENT_KEYS,
   FLYING_ENEMY_TUNING,
@@ -169,16 +170,27 @@ export class GameplayScene extends Phaser.Scene {
    */
   private inSettlement = false
 
+  /**
+   * world-strip-demo → world-strip-boss 过场视频（`BossTransitionOverlay`）结束
+   * 的一次性回调；`completeLevel` 在触发 boss 过场时安装、视频 ended 时触发、
+   * shutdown 时兜底 off 掉（若玩家在视频中途切出本页面）。
+   */
+  private pendingBossTransitionListener: (() => void) | null = null
+
   constructor() {
     super({ key: SCENE_KEYS.GAMEPLAY })
   }
 
   init(data: IGameplaySceneData): void {
+    console.log('[GameplayScene.init]', data)
     this.initData = data ?? {}
     this.npcs = new Map()
     this.currentNpcInRange = null
     this.seenNpcs = new Set()
     this.inSettlement = false
+    // scene.restart 不会重新运行 constructor，class field initializer 不会生效；
+    // 这里显式重置，避免上一场景的 "等待视频结束" listener 泄漏到新 scene。
+    this.pendingBossTransitionListener = null
   }
 
   // =========================================================================
@@ -189,6 +201,7 @@ export class GameplayScene extends Phaser.Scene {
     // ---- 1. 选关卡 ----
     const levelId = this.initData.levelId ?? DEFAULT_LEVEL.id
     const level = LEVEL_REGISTRY[levelId] ?? DEFAULT_LEVEL
+    console.log(`[GameplayScene.create] levelId=${levelId} → ${level.id}`)
     this.levelDef = level
 
     this.cameras.main.setBackgroundColor('#1a1a2e')
@@ -436,6 +449,7 @@ export class GameplayScene extends Phaser.Scene {
     // 通知 Vue 侧"本场新关卡已就绪" —— LevelTransitionOverlay 据此关闭过渡面板。
     // fromTransition = 区分"游戏首次挂载"和"上一关刚结束 → scene.restart"，前者
     // 不会有 LEVEL_COMPLETED 先发生，Vue 侧可以据此决定是否有 in-animation。
+    console.log(`[GameplayScene.create] → emit LEVEL_STARTED (${this.levelDef.id})`)
     eventBus.emit(EVENT_KEYS.LEVEL_STARTED, {
       levelId: this.levelDef.id,
       fromTransition: this.initData.fromTransition === true,
@@ -747,16 +761,48 @@ export class GameplayScene extends Phaser.Scene {
       const carryOver: SkillId[] = []
       if (this.skillManager.isUnlocked(SKILL_IDS.FLIGHT)) carryOver.push(SKILL_IDS.FLIGHT)
 
-      // 1600ms 的过渡预算：让 Vue 的 LevelTransitionOverlay 有时间完整淡入 + 展示
-      // "载入下一关" 文字，再由下一场景的 LEVEL_STARTED 触发淡出。原 900ms 太短，
-      // 面板才展开就已经 scene.restart 了。
-      this.time.delayedCall(1600, () => {
+      // 真正执行 scene.restart。BossTransitionOverlay 发 BOSS_TRANSITION_ENDED 时
+      // 我们的监听器是在一个 Vue DOM 事件 (`<video>` ended / timeupdate) 的回调栈
+      // 里触发的；Phaser SceneManager 的 queueOp 理论上能应付同步调用，但保险起见
+      // 先 `time.delayedCall(0, ...)` 把 restart 推到下一个 Phaser tick，让它在干净
+      // 的 Phaser 生命周期里处理 —— 避免与"刚刚还在 Vue 事件栈里"这种外部调用栈
+      // 的任何潜在竞态。另外把 physics.world 主动 resume 一次，防止旧 scene 的
+      // `physics.world.pause()` 状态影响 restart 时序。
+      const doRestart = (): void => {
+        console.log(`[GameplayScene] scene.restart → levelId=${nextLevelId}, carryOver=${JSON.stringify(carryOver)}`)
+        // 恢复物理（restart 自己会重建物理世界，但先显式 resume 避免 "paused → restart
+        // → 新世界也瞬间 paused" 的边角 case）
+        if (this.physics?.world?.isPaused) this.physics.world.resume()
         this.scene.restart({
           levelId: nextLevelId,
           unlockedSkills: carryOver,
           fromTransition: true,
         } satisfies IGameplaySceneData)
-      })
+      }
+
+      const scheduleRestart = (): void => {
+        // 下一 tick 执行 —— 即使调用方在 Vue DOM event 栈里也能干净地 hand off 给 Phaser
+        this.time.delayedCall(0, doRestart)
+      }
+
+      if (nextLevelId === BOSS_TRANSITION_LEVEL_ID) {
+        // Boss 场景专用：`BossTransitionOverlay` 会播 boss_transition.mp4 —— 视频
+        // 结束后发 BOSS_TRANSITION_ENDED，我们这才 scene.restart。视频时长通常 >
+        // 1600ms，所以不能再用固定 delay。shutdown 里会兜底 off 掉 listener 避免泄漏。
+        const onEnded = (): void => {
+          console.log(`[GameplayScene] BOSS_TRANSITION_ENDED received → scene.restart → ${nextLevelId}`)
+          eventBus.off(EVENT_KEYS.BOSS_TRANSITION_ENDED, onEnded)
+          this.pendingBossTransitionListener = null
+          scheduleRestart()
+        }
+        this.pendingBossTransitionListener = onEnded
+        eventBus.on(EVENT_KEYS.BOSS_TRANSITION_ENDED, onEnded)
+        console.log(`[GameplayScene] waiting for BOSS_TRANSITION_ENDED before restarting to ${nextLevelId}`)
+      } else {
+        // 常规过关：1600ms 的过渡预算让 Vue 的 LevelTransitionOverlay 完整淡入 +
+        // 展示"载入下一关"文字，再由下一场景的 LEVEL_STARTED 触发淡出。
+        this.time.delayedCall(1600, doRestart)
+      }
     }
   }
 
@@ -819,11 +865,18 @@ export class GameplayScene extends Phaser.Scene {
   }
 
   private handleShutdown = (): void => {
+    console.log('[GameplayScene.shutdown]')
     eventBus.off(EVENT_KEYS.GAME_PAUSE, this.handlePause)
     eventBus.off(EVENT_KEYS.GAME_RESUME, this.handleResume)
     eventBus.off(EVENT_KEYS.GAME_RESTART, this.handleRestart)
     eventBus.off(EVENT_KEYS.PLAYER_DIED, this.handlePlayerDied)
     this.events.off(SCENE_EVENT_BOSS_PHASE_CLEARED, this.onBossPhaseCleared)
+    // 若玩家在 boss 过场视频途中离开页面（退出到主页 / 直接 unmount Phaser），
+    // completeLevel 挂的"等视频结束"一次性监听器要主动摘掉，避免泄漏到下一次 scene。
+    if (this.pendingBossTransitionListener) {
+      eventBus.off(EVENT_KEYS.BOSS_TRANSITION_ENDED, this.pendingBossTransitionListener)
+      this.pendingBossTransitionListener = null
+    }
 
     // 销毁顺序：从外到内
     this.bgm?.stop()

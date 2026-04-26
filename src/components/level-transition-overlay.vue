@@ -15,7 +15,7 @@
  *   - 关卡 id → 显示名的映射就地维护（demo 阶段够用，正式游戏再抽成数据）。
  */
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { EVENT_KEYS } from '@/contents/constants'
+import { BOSS_TRANSITION_LEVEL_ID, EVENT_KEYS } from '@/contents/constants'
 import type {
   LevelCompletedPayload,
   LevelStartedPayload,
@@ -42,6 +42,12 @@ const isEnding = computed(() => !nextLevelId.value)
 
 const onLevelCompleted = (payload: unknown) => {
   const p = payload as LevelCompletedPayload
+  // Boss 场景过场由 `BossTransitionOverlay` 独占处理（mp4 过场动画）；这里主动让位，
+  // 避免"先弹常规过关面板再被视频覆盖"的闪烁。
+  if (p.nextLevelId === BOSS_TRANSITION_LEVEL_ID) {
+    visible.value = false
+    return
+  }
   currentLevelId.value = p.levelId
   nextLevelId.value = p.nextLevelId
   visible.value = true

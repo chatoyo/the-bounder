@@ -63,6 +63,13 @@ export const EVENT_KEYS = {
    * BossVictoryOverlay 据此展开庆祝面板；LEVEL_COMPLETED 随后触发 LevelTransitionOverlay。
    */
   BOSS_VICTORY: 'boss:victory',
+  /**
+   * Boss 过场视频播放结束（或被跳过）。从 `BossTransitionOverlay` 发出；
+   * `GameplayScene.completeLevel` 在 `nextLevelId === 'world-strip-boss'` 时
+   * 会等待本事件再 `scene.restart` 进入 boss 场景，替代原本固定 1600ms 的
+   * LevelTransitionOverlay 过渡计时。
+   */
+  BOSS_TRANSITION_ENDED: 'transition:boss-ended',
 
   // ---- 阶段 / 技能 (Phaser → Vue) ----
   PHASE_CHANGED: 'phase:changed',
@@ -286,3 +293,28 @@ export const AUDIO_TUNING = {
   /** Level 01 BGM 默认音量（0-1） */
   GAME_VOLUME: 0.45,
 } as const
+
+// ---- 视频资源 URL（仅供 Vue 层的 <video> overlay 使用，不走 Phaser loader） ----
+// 放在 public/videos/ 下；与 BGM_URLS 对应，让将来统一改路径 / 接入 hashing 时
+// 有一个集中点。视频 overlay 的生命周期完全在 Vue 侧，不需要 Phaser 预加载。
+export const VIDEO_URLS = {
+  /** 主菜单 → 游戏之间的第一段过场动画（IntroVideoOverlay 按顺序播放） */
+  INTRO_1: '/videos/intro_1.mp4',
+  /** 主菜单 → 游戏之间的第二段过场动画 */
+  INTRO_2: '/videos/intro_2.mp4',
+  /**
+   * world-strip-demo 通关后载入 world-strip-boss 之前播放的 boss 过场动画。
+   * 由 `BossTransitionOverlay` 播放；播完发 `BOSS_TRANSITION_ENDED` → GameplayScene
+   * 接到后 `scene.restart` 进入 boss 场景。
+   */
+  BOSS_TRANSITION: '/videos/boss_transition.mp4',
+} as const
+
+/**
+ * 触发 BossTransitionOverlay 的 level id —— 关卡 exit 的 `nextLevelId` 命中此值时，
+ * 播放 boss_transition.mp4 代替常规 LevelTransitionOverlay。
+ *
+ * 与 `LEVEL_WORLD_STRIP_BOSS.id` 保持一致；作为字符串字面量放在这里方便 UI 层
+ * 不必 import `data/levels/*`（避免把 LevelDef 构建逻辑拖进 Vue 覆盖层）。
+ */
+export const BOSS_TRANSITION_LEVEL_ID = 'world-strip-boss'
