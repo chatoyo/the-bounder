@@ -2,6 +2,17 @@
 import { useRouter } from 'vue-router'
 import GameButton from '@/components/game-button.vue'
 
+interface TeamMember {
+  name: string
+  roles: string[]
+}
+
+const team: TeamMember[] = [
+  { name: 'Sasha', roles: ['策划', '程序', '框架'] },
+  { name: 'Archie', roles: ['策划', '程序', '关卡设计'] },
+  { name: '小笼', roles: ['策划', '美术', '世界观'] },
+]
+
 const router = useRouter()
 
 function goHome() {
@@ -20,6 +31,22 @@ function goHome() {
       <p class="about-us__brand" data-text="Momakoding">Momakoding</p>
       <p class="about-us__tagline">一个有活力的团队</p>
     </div>
+
+    <ul class="about-us__team" aria-label="团队成员">
+      <li v-for="member in team" :key="member.name" class="about-us__member">
+        <span class="about-us__member-name">{{ member.name }}</span>
+        <span class="about-us__member-sep" aria-hidden="true">//</span>
+        <span class="about-us__member-roles">
+          <span
+            v-for="role in member.roles"
+            :key="role"
+            class="about-us__role"
+          >
+            {{ role }}
+          </span>
+        </span>
+      </li>
+    </ul>
 
     <footer class="about-us__footer">
       <blockquote class="about-us__quote">
@@ -162,6 +189,58 @@ function goHome() {
   color: #e8f6ff;
   letter-spacing: 0.12em;
   text-shadow: 0 0 8px rgba(0, 234, 255, 0.5);
+}
+
+.about-us__team {
+  @apply relative flex flex-col items-stretch gap-3 rounded-lg border px-6 py-5;
+  z-index: 3;
+  min-width: min(28rem, 90vw);
+  border-color: rgba(0, 234, 255, 0.45);
+  background: rgba(5, 2, 13, 0.55);
+  box-shadow:
+    0 0 12px rgba(0, 234, 255, 0.35),
+    inset 0 0 12px rgba(255, 45, 149, 0.12);
+  backdrop-filter: blur(2px);
+  list-style: none;
+}
+
+.about-us__member {
+  @apply flex flex-wrap items-center gap-x-3 gap-y-1;
+  letter-spacing: 0.08em;
+}
+
+.about-us__member + .about-us__member {
+  @apply border-t pt-3;
+  border-color: rgba(0, 234, 255, 0.18);
+}
+
+.about-us__member-name {
+  @apply text-lg font-bold;
+  min-width: 4.5rem;
+  color: var(--neon-pink);
+  text-shadow:
+    0 0 8px var(--neon-pink),
+    0 0 16px rgba(255, 45, 149, 0.55);
+}
+
+.about-us__member-sep {
+  color: rgba(0, 234, 255, 0.55);
+  font-weight: 700;
+  text-shadow: 0 0 6px rgba(0, 234, 255, 0.6);
+}
+
+.about-us__member-roles {
+  @apply flex flex-wrap items-center gap-2;
+}
+
+.about-us__role {
+  @apply rounded-md border px-2 py-0.5 text-sm font-semibold;
+  border-color: rgba(0, 234, 255, 0.6);
+  color: var(--neon-cyan);
+  background: rgba(0, 234, 255, 0.08);
+  box-shadow: inset 0 0 6px rgba(0, 234, 255, 0.15);
+  text-shadow: 0 0 6px rgba(0, 234, 255, 0.8);
+  letter-spacing: 0.1em;
 }
 
 .about-us__footer {
