@@ -16,6 +16,7 @@ const game = useGame()
  *   - 拾取：`pickup-flight` / `pickup-hp`
  *   - Boss：`boss-hulk` / `boss-wisp` / `boss-serpent`
  *   - 敌人子弹：`enemy-bullet`
+ *   - 小飞兵（空中敌人）：`enemy-flyer`
  *
  * 真素材接入时，把 generateTexture 换成 `this.load.image(key, url)` 即可，key 不变。
  */
@@ -420,5 +421,29 @@ export class BootScene extends Phaser.Scene {
     g.fillCircle(5, 5, 2)
     g.generateTexture('enemy-bullet', 10, 10)
     g.destroy()
+
+    // enemy-flyer: 28×20 的小飞兵（尖刺双翼 + 红色眼点 + 深紫身体）
+    // 体型故意做得比玩家(32×48)小、比子弹(8×4)大，保证子弹能精准命中但不显杂乱。
+    const f = this.make.graphics({ x: 0, y: 0 })
+    // 身体：紫黑椭圆
+    f.fillStyle(0x2a1b45, 1)
+    f.fillEllipse(14, 10, 14, 10)
+    // 翅膀：左右三角
+    f.fillStyle(0x6a4fbf, 1)
+    f.fillTriangle(6, 10, 0, 2, 2, 12)
+    f.fillTriangle(22, 10, 28, 2, 26, 12)
+    // 翅膀高光
+    f.fillStyle(0xb299ff, 1)
+    f.fillTriangle(6, 10, 2, 4, 3, 11)
+    f.fillTriangle(22, 10, 26, 4, 25, 11)
+    // 尖角
+    f.fillStyle(0xe8d8ff, 1)
+    f.fillTriangle(12, 4, 14, 0, 16, 4)
+    // 红色眼点
+    f.fillStyle(0xff3355, 1)
+    f.fillRect(11, 9, 2, 2)
+    f.fillRect(15, 9, 2, 2)
+    f.generateTexture('enemy-flyer', 28, 20)
+    f.destroy()
   }
 }

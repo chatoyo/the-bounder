@@ -21,6 +21,7 @@ import * as Phaser from 'phaser'
 import {
   CAPABILITY_IDS,
   EVENT_KEYS,
+  FLYING_ENEMY_TUNING,
   GAME_CONFIG,
   PHASE_IDS,
   POOL_SIZES,
@@ -30,11 +31,14 @@ import {
 } from '../constants'
 import type {
   ActionId,
+  BossTriggerSegmentDef,
+  BossVictoryPayload,
   CheckpointReachedPayload,
   DialogueCommand,
   IGameplaySceneData,
   LevelDef,
   LevelCompletedPayload,
+  LevelStartedPayload,
   PhaseId,
   PickupCollectedPayload,
   PlayerHpChangedPayload,
@@ -53,6 +57,7 @@ import { JumpCapability } from '../entities/player/capabilities/jump-capability'
 import { ShootCapability } from '../entities/player/capabilities/shoot-capability'
 import { FlyCapability } from '../entities/player/capabilities/fly-capability'
 import { NpcEntity } from '../entities/npc/npc-entity'
+import { FlyingEnemyPool } from '../entities/enemies/flying-enemy-pool'
 import { CameraDirector } from '../systems/camera-director'
 import { InputSystem } from '../systems/input-system'
 import { LevelRunner, LOOP_WORLD_MAX_X } from '../systems/level-runner'
@@ -93,6 +98,10 @@ export class GameplayScene extends Phaser.Scene {
   private screenBounds!: ScreenBoundsSystem
   private phaseController!: PhaseController
   private dialogueRunner!: DialogueRunner
+  /** 小飞兵对象池 —— 仅 running phase 用定时器 spawn；BossPhase 进入时清场 */
+  private flyingEnemies!: FlyingEnemyPool
+  /** 小飞兵 spawn 定时器（固定 interval；回调里按 phase 过滤） */
+  private flyerSpawner!: Phaser.Time.TimerEvent
 
   /** 已物化的 NPC 实体，按 id 可以反查到 */
   private npcs = new Map<string, NpcEntity>()
@@ -117,6 +126,12 @@ export class GameplayScene extends Phaser.Scene {
   /** 保存滚动模式；update 里依据它决定 ScreenBoundsSystem 是否启用 */
   private savedScrollMode: 'auto-right' | 'follow' | 'locked' = 'auto-right'
 
+  /**
+   * 结算锁：true 时本 scene 处于 "boss 已击破 → 正在展示 BOSS_VICTORY 面板" 的
+   * 冻结窗口（camera locked + physics paused）。update() / spawnFlyer 等要据此跳过。
+   */
+  private inSettlement = false
+
   constructor() {
     super({ key: SCENE_KEYS.GAMEPLAY })
   }
@@ -126,6 +141,7 @@ export class GameplayScene extends Phaser.Scene {
     this.npcs = new Map()
     this.currentNpcInRange = null
     this.seenNpcs = new Set()
+    this.inSettlement = false
   }
 
   // =========================================================================
@@ -151,10 +167,12 @@ export class GameplayScene extends Phaser.Scene {
     const spawn = this.levelRunner.getActiveSpawn()
     this.player = new Player(this, spawn.x, spawn.y)
 
-    // ---- 4. 子弹池 ----
+    // ---- 4. 子弹池 + 小飞兵池 ----
     this.playerBullets = new BulletPool(this, 'bullet', POOL_SIZES.PLAYER_BULLETS)
     // 把玩家子弹 group 塞到 scene.data，BossPhase 需要它建 overlap
     this.data.set('playerBulletsGroup', this.playerBullets.group)
+
+    this.flyingEnemies = new FlyingEnemyPool(this, 'enemy-flyer', POOL_SIZES.FLYING_ENEMIES)
 
     // ---- 5. Input ----
     this.inputSystem = new InputSystem(this)
@@ -298,6 +316,41 @@ export class GameplayScene extends Phaser.Scene {
       onPickupOverlap,
     )
 
+    // 小飞兵 vs 玩家 → 扣血 + 飞兵回池
+    this.physics.add.overlap(
+      this.player.sprite,
+      this.flyingEnemies.group,
+      (_playerGO, flyerGO) => {
+        if (!this.player.alive) return
+        const s = flyerGO as Phaser.Physics.Arcade.Sprite
+        if (!s.active) return
+        this.flyingEnemies.kill(s)
+        this.player.damage(FLYING_ENEMY_TUNING.CONTACT_DAMAGE, 'enemy')
+      },
+    )
+
+    // 玩家子弹 vs 小飞兵 → 双方销毁
+    this.physics.add.overlap(
+      this.playerBullets.group,
+      this.flyingEnemies.group,
+      (bulletGO, flyerGO) => {
+        const b = bulletGO as Phaser.Physics.Arcade.Sprite
+        const s = flyerGO as Phaser.Physics.Arcade.Sprite
+        if (!b.active || !s.active) return
+        this.playerBullets.kill(b)
+        this.flyingEnemies.kill(s)
+      },
+    )
+
+    // 小飞兵 spawner —— 固定 interval；回调里按 phase 过滤，避免 boss / respawn / dialogue
+    // 期间硬刷（BossPhase.enter 里也会主动 despawnAll()）。
+    this.flyerSpawner = this.time.addEvent({
+      delay: FLYING_ENEMY_TUNING.SPAWN_INTERVAL_MS,
+      loop: true,
+      callback: this.spawnFlyer,
+      callbackScope: this,
+    })
+
     // ---- 12. DialogueRunner + Phases ----
     this.dialogueRunner = new DialogueRunner((cmd) => this.handleDialogueCommand(cmd))
 
@@ -330,6 +383,14 @@ export class GameplayScene extends Phaser.Scene {
       max: this.player.maxHp,
     } satisfies PlayerHpChangedPayload)
 
+    // 通知 Vue 侧"本场新关卡已就绪" —— LevelTransitionOverlay 据此关闭过渡面板。
+    // fromTransition = 区分"游戏首次挂载"和"上一关刚结束 → scene.restart"，前者
+    // 不会有 LEVEL_COMPLETED 先发生，Vue 侧可以据此决定是否有 in-animation。
+    eventBus.emit(EVENT_KEYS.LEVEL_STARTED, {
+      levelId: this.levelDef.id,
+      fromTransition: this.initData.fromTransition === true,
+    } satisfies LevelStartedPayload)
+
     // ---- 15. shutdown 清理 ----
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown)
 
@@ -357,19 +418,27 @@ export class GameplayScene extends Phaser.Scene {
     // physics.world.pause() 仍由各自 phase.enter() 负责物理层面的冻结。
     if (this.phaseController.getCurrent()?.freezesWorld === true) return
 
+    // 结算态：boss 刚击破，正在展示 BOSS_VICTORY 面板；phase 已经切回 running，
+    // 但我们故意让世界冻结（锁相机 + 暂停物理）把注意力全留给 Vue 覆盖层。
+    // 同样跳过所有世界系统，只保留 inputSystem + phaseController 的驱动（已在上面跑过）。
+    if (this.inSettlement) return
+
     // ---- 世界更新 ----
     this.player.update(time, delta)
     this.playerBullets.cull(time)
+    // 小飞兵：boss / running phase 都要 tick —— running 下正常刷，boss 下已经 despawnAll 过，
+    // 这里 no-op 但要让 cull / sin 摆动流程对称。
+    this.flyingEnemies.update(time, this.cameras.main.scrollX)
 
     this.cameraDirector.update(time, delta)
     this.parallax.update(time, delta)
 
     // 飞行态下开启 Y 夹紧
     this.screenBounds.setConfig({ clampY: this.player.isFlying })
-    // Boss phase 时关闭自动 crush 判定（对话 phase 已经被 freezesWorld 拦在外面）
+    // auto-scroll 关卡里 screenBounds 始终保持开启 —— boss phase 也不再关掉
+    // （BossPhase 现在保持世界流动，若关 screenBounds 玩家就能一直向左飞出屏幕）。
     const phaseId = this.phaseController.getCurrentId()
-    const inCombat = phaseId === PHASE_IDS.BOSS
-    this.screenBounds.setEnabled(this.savedScrollMode === 'auto-right' && !inCombat)
+    this.screenBounds.setEnabled(this.savedScrollMode === 'auto-right')
     this.screenBounds.update(time, delta)
 
     // 水平无限循环：让 LevelRunner 根据相机位置维护 platform / hazard /
@@ -400,9 +469,12 @@ export class GameplayScene extends Phaser.Scene {
       if (trigger) {
         const bossDef = BOSS_REGISTRY[trigger.bossId]
         if (bossDef) {
+          // 清掉所有在场小飞兵，避免 boss 登场时屏幕还飘着一片杂兵
+          this.flyingEnemies.despawnAll()
           this.phaseController.transition(PHASE_IDS.BOSS, {
             bossDef,
             levelId: this.levelDef.id,
+            nextLevelId: trigger.nextLevelId,
           } satisfies BossPhaseEnterData)
           return
         }
@@ -521,23 +593,91 @@ export class GameplayScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * 小飞兵刷新回调 —— 固定 interval；仅 running phase + 非结算态 下才刷。
+   * spawn 坐标：相机视口右缘外 SPAWN_MARGIN 像素，Y 随机在 [SPAWN_Y_MIN, SPAWN_Y_MAX]。
+   */
+  private spawnFlyer = (): void => {
+    if (this.inSettlement) return
+    if (this.phaseController.getCurrentId() !== PHASE_IDS.RUNNING) return
+    const cam = this.cameras.main
+    const T = FLYING_ENEMY_TUNING
+    const x = cam.scrollX + cam.width + T.SPAWN_MARGIN
+    const y = T.SPAWN_Y_MIN + Math.random() * (T.SPAWN_Y_MAX - T.SPAWN_Y_MIN)
+    this.flyingEnemies.spawn(x, y)
+  }
+
   private onBossPhaseCleared = (): void => {
-    // Loop 关卡：boss 是关卡中的一次性事件，打完之后继续无限跑。重启 auto-scroll
-    // 即可 —— firedBossTriggers 保证同一 trigger 不会在后续 chunk 里再发一次。
-    if (this.levelRunner.isLooping()) {
-      const speed: number = this.levelDef.scroll?.speed ?? SCROLL_TUNING.DEFAULT_SPEED
-      this.cameraDirector.autoScrollRight(speed)
-      // PhaseController 的 BossPhase.onBossDefeated 已经 transition 到 running。
+    // BossPhase 已经等过 2s 才派发本事件（见 BossPhase.onBossDefeated 的 delayedCall）。
+    // 现在进入"结算"段：锁相机 + 暂停物理 + 打开 BossVictoryOverlay；2.5s 后触发
+    // LEVEL_COMPLETED 走 LevelTransitionOverlay → scene.restart 载入下一关。
+    //
+    // nextLevelId 的解析优先级：
+    //   1) 触发本次 boss 的 BossTriggerSegmentDef.nextLevelId（BossPhase 存到 scene.data）
+    //   2) 段里任意 level-exit 的 nextLevelId（非 loop 关卡老逻辑兜底）
+    //   3) 都没有 → loop 关卡里 boss 只是中间事件，不做结算、恢复 auto-scroll
+    const fromTrigger = this.data.get('bossPhaseNextLevelId') as string | null | undefined
+    const fromExit = (this.levelRunner.getDef().segments as readonly { type: string }[])
+      .find((s) => s.type === 'level-exit') as { nextLevelId?: string } | undefined
+    const nextLevelId = fromTrigger ?? fromExit?.nextLevelId
+
+    if (!nextLevelId) {
+      // 老行为：loop 关卡 + 未指定 nextLevelId → 继续跑
+      if (this.levelRunner.isLooping()) {
+        const speed: number = this.levelDef.scroll?.speed ?? SCROLL_TUNING.DEFAULT_SPEED
+        this.cameraDirector.autoScrollRight(speed)
+      }
       return
     }
 
-    // 非 loop：老行为 —— 查找 level-exit 决定转场到哪一关
-    const anyExit = Array.from(
-      (this.levelRunner.getDef().segments as readonly { type: string }[]).filter(
-        (s) => s.type === 'level-exit',
-      ),
-    )[0] as { nextLevelId?: string } | undefined
-    this.completeLevel(anyExit?.nextLevelId)
+    // ---- 结算阶段 ----
+    // 锁相机 + 暂停物理 + 打 inSettlement 标记，让整个世界冻结在"最后一帧"的画面上，
+    // Vue 覆盖层的特效 / 动画占据全部注意力。
+    this.inSettlement = true
+    const snap = {
+      x: this.cameras.main.scrollX + this.cameras.main.width / 2,
+      y: this.cameras.main.scrollY + this.cameras.main.height / 2,
+    }
+    this.cameraDirector.lock(snap.x, snap.y)
+    this.physics.world.pause()
+    // spawner 本身不停（time.addEvent 的 paused 会被 physics.world.pause 连带影响），
+    // 不过回调里的 inSettlement 检查已经兜底；这里再显式清场避免残影。
+    this.flyingEnemies.despawnAll()
+
+    // 找到 boss 的 displayName：当前 phase 刚从 BOSS 退出，boss def 我们没留引用。
+    // 退而求其次：按 bossPhaseLevelId 所在关卡的 boss-trigger 反查 BossDef。
+    const bossDef = this.findLastFiredBossDef()
+    const bossId = bossDef?.id ?? 'boss'
+    const displayName = bossDef?.displayName ?? 'BOSS'
+
+    eventBus.emit(EVENT_KEYS.BOSS_VICTORY, {
+      bossId,
+      displayName,
+      nextLevelId,
+    } satisfies BossVictoryPayload)
+
+    // 2500ms 后推进到 LEVEL_COMPLETED —— LevelTransitionOverlay 接手后还会再等
+    // 1600ms 完成 scene.restart。总时序：boss 死 → 2s 缓冲 → 2.5s 结算面板 →
+    // 1.6s 过渡面板 → 新关卡就绪。
+    this.time.delayedCall(2500, () => {
+      this.completeLevel(nextLevelId)
+    })
+  }
+
+  /**
+   * 反查本次被击破的 BossDef。由于 BossPhase 已经 exit，ctx 拿不到了；从当前关卡
+   * 的 boss-trigger segments 里挑第一条 bossId 存在于 BOSS_REGISTRY 的即可。
+   * loop 关卡 + 多 trigger 场景下可能不准，但 jam demo 每关最多一个 boss，够用。
+   */
+  private findLastFiredBossDef() {
+    const segs = this.levelRunner.getDef().segments
+    for (const s of segs) {
+      if (s.type !== 'boss-trigger') continue
+      const trig = s as BossTriggerSegmentDef
+      const bd = BOSS_REGISTRY[trig.bossId]
+      if (bd) return bd
+    }
+    return null
   }
 
   private completeLevel(nextLevelId?: string): void {
@@ -558,10 +698,14 @@ export class GameplayScene extends Phaser.Scene {
       const carryOver: SkillId[] = []
       if (this.skillManager.isUnlocked(SKILL_IDS.FLIGHT)) carryOver.push(SKILL_IDS.FLIGHT)
 
-      this.time.delayedCall(900, () => {
+      // 1600ms 的过渡预算：让 Vue 的 LevelTransitionOverlay 有时间完整淡入 + 展示
+      // "载入下一关" 文字，再由下一场景的 LEVEL_STARTED 触发淡出。原 900ms 太短，
+      // 面板才展开就已经 scene.restart 了。
+      this.time.delayedCall(1600, () => {
         this.scene.restart({
           levelId: nextLevelId,
           unlockedSkills: carryOver,
+          fromTransition: true,
         } satisfies IGameplaySceneData)
       })
     }
@@ -599,6 +743,7 @@ export class GameplayScene extends Phaser.Scene {
     this.events.off(SCENE_EVENT_BOSS_PHASE_CLEARED, this.onBossPhaseCleared)
 
     // 销毁顺序：从外到内
+    this.flyerSpawner?.remove(false)
     this.phaseController?.destroy()
     this.dialogueRunner?.destroy()
     for (const npc of this.npcs.values()) npc.destroy()
@@ -608,6 +753,7 @@ export class GameplayScene extends Phaser.Scene {
     this.parallax?.destroy()
     this.cameraDirector?.destroy()
     this.inputSystem?.destroy()
+    this.flyingEnemies?.destroy()
     this.playerBullets?.destroy()
     this.player?.destroy()
     this.levelRunner?.destroy()

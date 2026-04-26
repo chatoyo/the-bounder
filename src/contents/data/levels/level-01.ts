@@ -133,14 +133,15 @@ export const LEVEL_01: LevelDef = {
     },
 
     // ----------------- Boss trigger —— "影之使徒"，在 x=2950 触发 -----------------
-    // 触发后 BossPhase.enter 会把相机锁到 bossDef.spawnX-100 = 2900，
-    // boss 在 spawnX=3000 出现。firedBossTriggers 保证只触发一次；
-    // 打完回到 running，继续跑下一个 chunk、下一个 chunk……
+    // BossPhase 不再锁相机：auto-scroll 继续，boss 从屏幕右侧滑入并跟随视口。
+    // 击破后 2s → BOSS_VICTORY 结算面板 → LevelTransitionOverlay → 载入 `nextLevelId`。
+    // firedBossTriggers 保证本次关卡生命周期内只触发一次。
     {
       type: 'boss-trigger',
       id: 'shadow-trigger',
       x: 2950,
       bossId: 'boss-shadow',
+      nextLevelId: 'level-02',
     },
   ],
 }

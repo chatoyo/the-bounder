@@ -38,6 +38,11 @@ export const EVENT_KEYS = {
   // ---- 关卡进度 (Phaser → Vue) ----
   CHECKPOINT_REACHED: 'checkpoint:reached',
   LEVEL_COMPLETED: 'level:completed',
+  /**
+   * 新关卡 create() 末尾触发。Vue 层的 LevelTransitionOverlay 据此关闭"准备下一关"
+   * 面板，也方便未来接入读取进度条 / 淡入动画等过渡 UI。
+   */
+  LEVEL_STARTED: 'level:started',
 
   // ---- 拾取 / 交互 (Phaser → Vue) ----
   PICKUP_COLLECTED: 'pickup:collected',
@@ -53,6 +58,11 @@ export const EVENT_KEYS = {
   BOSS_SPAWNED: 'boss:spawned',
   BOSS_HP_CHANGED: 'boss:hp-changed',
   BOSS_DEFEATED: 'boss:defeated',
+  /**
+   * Boss 击破后 ~2s 由 GameplayScene 发出的"结算"事件。Vue 侧的
+   * BossVictoryOverlay 据此展开庆祝面板；LEVEL_COMPLETED 随后触发 LevelTransitionOverlay。
+   */
+  BOSS_VICTORY: 'boss:victory',
 
   // ---- 阶段 / 技能 (Phaser → Vue) ----
   PHASE_CHANGED: 'phase:changed',
@@ -159,6 +169,35 @@ export const CAMERA_TUNING = {
 export const POOL_SIZES = {
   PLAYER_BULLETS: 32,
   ENEMY_BULLETS: 48,
+  /** 同时存活的"小飞兵"上限；超过后新 spawn 会返 null */
+  FLYING_ENEMIES: 12,
+} as const
+
+// ---- 小飞兵 / Flying enemy 调参 ----
+// 小体型空中敌人：从右侧视口边外刷出，水平匀速向左漂（世界空间 vx < 0 → 相机同时
+// 右滚时玩家看起来是迎面飞来），沿 sin 波做垂直摆动。1 HP 1 接触伤害。
+export const FLYING_ENEMY_TUNING = {
+  /** 同时存活上限；也是 pool maxSize（与 POOL_SIZES.FLYING_ENEMIES 同步） */
+  POOL_SIZE: 12,
+  /** 两次 spawn 之间的间隔（ms）；越小越密集 */
+  SPAWN_INTERVAL_MS: 1600,
+  /** 世界空间水平速度下限（像素/秒，负值 = 向左） */
+  VX_MIN: -110,
+  /** 世界空间水平速度上限 */
+  VX_MAX: -60,
+  /** 垂直摆动幅度（像素） */
+  SWAY_AMPLITUDE: 28,
+  /** 垂直摆动周期（秒） */
+  SWAY_PERIOD: 1.5,
+  /** spawn 时距相机右边缘的水平外推（像素） */
+  SPAWN_MARGIN: 40,
+  /** spawn Y 区间（像素，世界空间 → 对 auto-right 关卡相当于屏幕 Y） */
+  SPAWN_Y_MIN: 120,
+  SPAWN_Y_MAX: 380,
+  /** 超过相机左侧 x 多少像素后回池（防止被玩家追回打中） */
+  CULL_OFF_LEFT: 80,
+  /** 接触玩家伤害 */
+  CONTACT_DAMAGE: 1,
 } as const
 
 // ---- Phase 阶段 Id（单例 string 字面量用于 FSM / EventBus 载荷） ----

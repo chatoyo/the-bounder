@@ -39,6 +39,12 @@ export interface IGameplaySceneData {
   levelId?: string
   /** 进入本关时玩家已解锁的 skill 集合（跨关卡持久化，例如飞行） */
   unlockedSkills?: SkillId[]
+  /**
+   * 是否由上一关 completeLevel → scene.restart 跳转而来。Vue 侧的
+   * LevelTransitionOverlay 需要这个标记来决定过渡面板的淡出时机：只有真正"从上
+   * 一关转场过来"时才要等 LEVEL_STARTED 再关面板。
+   */
+  fromTransition?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +152,13 @@ export interface PickupSegmentDef {
   y: number
 }
 
-/** Boss 触发段：玩家进入 x 之后切到 BossPhase，同时停止自动滚动 */
+/**
+ * Boss 触发段：玩家进入 x 之后切到 BossPhase。
+ *
+ * 注：BossPhase 不再停止自动滚动 —— 世界保持流动，boss 从屏幕右侧"登场"并跟随
+ * 相机保持在视口内。boss 被击破后进入 2s 静默 + BOSS_VICTORY 结算面板，再走
+ * LEVEL_COMPLETED → LevelTransitionOverlay → 载入 `nextLevelId`。
+ */
 export interface BossTriggerSegmentDef {
   type: 'boss-trigger'
   id: string
@@ -154,6 +166,12 @@ export interface BossTriggerSegmentDef {
   x: number
   /** Boss 数据 id；查 data/bosses/ */
   bossId: string
+  /**
+   * boss 被击破后要载入的下一关 id；不填则沿用老行为：
+   * - loop 关卡：停留继续跑（不触发结算）；
+   * - 非 loop 关卡：从 segments 里找第一个 `level-exit` 的 nextLevelId 兜底。
+   */
+  nextLevelId?: string
 }
 
 /** 关卡终点：接触后切 LEVEL_COMPLETED + 过渡到下一关 */
@@ -330,6 +348,14 @@ export interface LevelCompletedPayload {
   nextLevelId?: string
 }
 
+export interface LevelStartedPayload {
+  levelId: string
+  /** 显示用关卡名；来自 LevelDef.id 的人性化转写（缺省等于 id） */
+  displayName?: string
+  /** 是否由上一关转场过来（首次进入 = false，scene.restart 过来 = true） */
+  fromTransition: boolean
+}
+
 export interface PickupCollectedPayload {
   id: string
   kind: PickupId
@@ -376,6 +402,17 @@ export interface BossHpChangedPayload {
 
 export interface BossDefeatedPayload {
   bossId: string
+}
+
+/**
+ * BOSS 击破后 ~2s 的"结算面板"入参。
+ * nextLevelId 缺省时面板展示"无后续关卡"文案（loop 关卡 + 未指定 nextLevelId 的
+ * boss-trigger 会落到此分支，但实际上 GameplayScene 也不会 emit 这个事件）。
+ */
+export interface BossVictoryPayload {
+  bossId: string
+  displayName: string
+  nextLevelId?: string
 }
 
 export interface PhaseChangedPayload {

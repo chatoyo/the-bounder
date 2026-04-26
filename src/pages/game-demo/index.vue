@@ -2,9 +2,20 @@
   <div class="game-demo">
     <!-- Phaser 画布挂载点 -->
     <div ref="gameContainer" class="game-demo__canvas">
-      <!-- Vue 覆盖层：HUD（HP / 技能槽 / boss 血条）+ 对话框 -->
+      <!--
+        Vue 覆盖层（由低 z 到高 z）：
+          - GameHud：HP / 技能槽 / boss 血条（底层）
+          - DialogueOverlay：NPC 对话框（中层）
+          - DeathOverlay：玩家死亡到复活之间的"失败"提示（较高层）
+          - BossVictoryOverlay：BOSS 击破结算面板（较高层；与 DeathOverlay 互斥）
+          - LevelTransitionOverlay：过关到下一关的"准备载入"面板（最高层，结算后接力）
+        死亡 / 胜利 / 过关不会同时发生，z 排序按"更强的阻断态更靠前"即可。
+      -->
       <GameHud />
       <DialogueOverlay />
+      <DeathOverlay />
+      <BossVictoryOverlay />
+      <LevelTransitionOverlay />
     </div>
   </div>
 </template>
@@ -15,6 +26,9 @@ import { BootScene, GameplayScene } from '@/contents'
 import { useGame } from '@/runtime'
 import GameHud from '@/components/game-hud.vue'
 import DialogueOverlay from '@/components/dialogue-overlay.vue'
+import DeathOverlay from '@/components/death-overlay.vue'
+import BossVictoryOverlay from '@/components/boss-victory-overlay.vue'
+import LevelTransitionOverlay from '@/components/level-transition-overlay.vue'
 
 const gameContainer = ref<HTMLDivElement>()
 const game = useGame()

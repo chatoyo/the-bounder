@@ -128,8 +128,12 @@ export class RespawnPhase implements Phase {
   readonly freezesWorld = true
 
   private elapsed = 0
-  /** 冻结时长（毫秒） */
-  private static readonly FREEZE_MS = 550
+  /**
+   * 冻结时长（毫秒）。Vue 侧的 DeathOverlay 订阅 PLAYER_DIED / PLAYER_RESPAWNED
+   * 在这个窗口里渲染"失败"面板；太短会让动画来不及展开，所以 1200ms 是"看清
+   * 失败提示 + 不打断玩家节奏"的折中。
+   */
+  private static readonly FREEZE_MS = 1200
 
   private ctx: PhaseContext
 

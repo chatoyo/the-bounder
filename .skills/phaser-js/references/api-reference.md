@@ -109,6 +109,26 @@ this.physics.add.staticGroup(config?) → static physics group
 this.physics.add.collider(a, b, callback?, process?, scope?)
 this.physics.add.overlap(a, b, callback?, process?, scope?)
 
+// ⚠️ Callback argument order is NOT always the call order.
+// When one side is a sprite and the other is a group, Phaser rewrites the pair
+// to (sprite, group) internally (see collideHandler swap in
+// phaser/src/physics/arcade/World.js:1946) before invoking
+// collideSpriteVsGroup(sprite, group). The callback then always receives
+// (spriteGO, groupMemberGO), even if you called overlap(group, sprite, cb).
+//
+//   overlap(sprite, sprite, cb)     → cb(sprite1, sprite2)        (preserves order)
+//   overlap(sprite, group,  cb)     → cb(sprite, groupMember)
+//   overlap(group,  sprite, cb)     → cb(sprite, groupMember)     ← NOT (group, sprite)
+//   overlap(groupA, groupB, cb)     → cb(groupAMember, groupBMember)
+//   overlap(array,  array,  cb)     → cb(arrayAItem,  arrayBItem) (preserves order)
+//
+// Same rule applies to collider() and to the processCallback.
+// Classic bug this causes: code that "kills the bullet" by calling
+// bullet.setActive(false) / body.enable = false on the first callback arg
+// actually disables the enemy sprite — subsequent overlap checks bail at
+// collideSpriteVsGroup:!bodyA.enable, and the enemy stops responding to
+// every collider/overlap (bullets, player contact, etc.) after one hit.
+
 // World
 this.physics.world.setBounds(x, y, w, h)
 this.physics.world.gravity.y = 300

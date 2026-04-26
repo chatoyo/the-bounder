@@ -122,20 +122,25 @@ export const LEVEL_02: LevelDef = {
     },
 
     // ----------------- Boss trigger -----------------
+    // BossPhase 不再锁相机；boss 从右侧滑入。击破 → 2s → BOSS_VICTORY 结算 →
+    // LevelTransitionOverlay → 回到 level-01（demo 循环）。
     {
       type: 'boss-trigger',
       id: 'shadow-trigger',
       x: 2830,
       bossId: 'boss-shadow',
+      nextLevelId: 'level-01',
     },
 
-    // ----------------- 关卡终点（boss 死后触发） -----------------
+    // ----------------- 备用关卡终点 -----------------
+    // boss 击破后已经直接走 nextLevelId → 这个 level-exit 在新流程下走不到；
+    // 保留作为"万一玩家绕过了 boss"的兜底 & 未来 non-boss 结束关卡的写法范例。
     {
       type: 'level-exit',
       id: 'exit',
       x: 3600,
       y: 300,
-      nextLevelId: 'level-01', // 循环回第一关（demo 收尾）
+      nextLevelId: 'level-01',
     },
   ],
 }
