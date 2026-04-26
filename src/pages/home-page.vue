@@ -94,8 +94,11 @@ onBeforeUnmount(() => {
 
 <template>
 	<div class="home-page">
-		<h1 class="home-page__title">
-			[请输入文本]
+		<div class="home-page__grid" aria-hidden="true" />
+		<div class="home-page__scanlines" aria-hidden="true" />
+
+		<h1 class="home-page__title" data-text="THE BOUNDER">
+			THE BOUNDER
 		</h1>
 
 		<nav class="home-page__nav">
@@ -108,15 +111,189 @@ onBeforeUnmount(() => {
 <style lang="css" scoped>
 @reference "@/style.css";
 
+/* ---------- Cyberpunk neon palette (scoped to this page) ---------- */
 .home-page {
-	@apply flex min-h-screen flex-col items-center justify-center gap-12;
+	--neon-pink: #ff2d95;
+	--neon-magenta: #ff00e5;
+	--neon-cyan: #00eaff;
+	--neon-purple: #8a2be2;
+	--neon-bg-0: #05020d;
+	--neon-bg-1: #0a0420;
+	--neon-bg-2: #1a0735;
+
+	@apply relative flex min-h-screen flex-col items-center justify-center gap-12 overflow-hidden;
+	background:
+		radial-gradient(ellipse at 20% 10%, rgba(255, 45, 149, 0.25), transparent 55%),
+		radial-gradient(ellipse at 80% 90%, rgba(0, 234, 255, 0.22), transparent 55%),
+		linear-gradient(180deg, var(--neon-bg-0) 0%, var(--neon-bg-1) 50%, var(--neon-bg-2) 100%);
+	color: #e8f6ff;
+	user-select: none;
 }
 
+/* Perspective cyber-grid floor */
+.home-page__grid {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background-image:
+		linear-gradient(rgba(0, 234, 255, 0.18) 1px, transparent 1px),
+		linear-gradient(90deg, rgba(255, 45, 149, 0.18) 1px, transparent 1px);
+	background-size: 48px 48px;
+	mask-image: radial-gradient(ellipse at 50% 60%, rgba(0, 0, 0, 0.9) 0%, transparent 75%);
+	-webkit-mask-image: radial-gradient(ellipse at 50% 60%, rgba(0, 0, 0, 0.9) 0%, transparent 75%);
+	animation: grid-drift 14s linear infinite;
+}
+
+/* CRT-style scanlines */
+.home-page__scanlines {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background: repeating-linear-gradient(
+		to bottom,
+		rgba(255, 255, 255, 0.03) 0px,
+		rgba(255, 255, 255, 0.03) 1px,
+		transparent 1px,
+		transparent 3px
+	);
+	mix-blend-mode: overlay;
+	opacity: 0.6;
+}
+
+/* Neon title with chromatic aberration */
 .home-page__title {
-	@apply text-5xl font-bold tracking-widest text-amber-400;
+	@apply relative text-6xl font-black tracking-[0.35em];
+	color: #fff;
+	text-shadow:
+		0 0 8px rgba(255, 255, 255, 0.85),
+		0 0 18px var(--neon-pink),
+		0 0 38px var(--neon-magenta),
+		0 0 78px var(--neon-purple);
+	animation: neon-flicker 3.2s infinite;
+	z-index: 1;
+}
+
+.home-page__title::before,
+.home-page__title::after {
+	content: attr(data-text);
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	opacity: 0.75;
+	mix-blend-mode: screen;
+}
+
+.home-page__title::before {
+	color: var(--neon-cyan);
+	text-shadow: 0 0 12px var(--neon-cyan);
+	transform: translate(-2px, 0);
+	clip-path: polygon(0 0, 100% 0, 100% 45%, 0 45%);
+}
+
+.home-page__title::after {
+	color: var(--neon-pink);
+	text-shadow: 0 0 12px var(--neon-pink);
+	transform: translate(2px, 0);
+	clip-path: polygon(0 55%, 100% 55%, 100% 100%, 0 100%);
 }
 
 .home-page__nav {
-	@apply flex flex-col items-center gap-4;
+	@apply relative flex flex-col items-center gap-4;
+	z-index: 1;
+}
+
+/* ---------- Neon overrides for GameButton (scoped via :deep) ---------- */
+.home-page :deep(.game-button) {
+	@apply relative border uppercase;
+	letter-spacing: 0.18em;
+	backdrop-filter: blur(2px);
+	transition: all 200ms ease;
+}
+
+.home-page :deep(.game-button--primary) {
+	background: linear-gradient(135deg, var(--neon-pink) 0%, var(--neon-magenta) 100%);
+	border-color: rgba(255, 255, 255, 0.35);
+	color: #0a0420;
+	box-shadow:
+		0 0 12px var(--neon-pink),
+		0 0 28px rgba(255, 45, 149, 0.55),
+		inset 0 0 10px rgba(255, 255, 255, 0.35);
+	text-shadow: 0 0 6px rgba(255, 255, 255, 0.65);
+}
+
+.home-page :deep(.game-button--primary:hover) {
+	background: linear-gradient(135deg, #ff55a8 0%, #ff3ef0 100%);
+	box-shadow:
+		0 0 16px var(--neon-pink),
+		0 0 42px var(--neon-magenta),
+		inset 0 0 14px rgba(255, 255, 255, 0.5);
+	transform: translateY(-1px);
+}
+
+.home-page :deep(.game-button--primary:active) {
+	transform: translateY(1px);
+	box-shadow:
+		0 0 10px var(--neon-pink),
+		inset 0 0 18px rgba(0, 0, 0, 0.35);
+}
+
+.home-page :deep(.game-button--secondary) {
+	background: rgba(5, 2, 13, 0.55);
+	border-color: var(--neon-cyan);
+	color: var(--neon-cyan);
+	box-shadow:
+		0 0 10px rgba(0, 234, 255, 0.55),
+		inset 0 0 10px rgba(0, 234, 255, 0.12);
+	text-shadow: 0 0 8px rgba(0, 234, 255, 0.8);
+}
+
+.home-page :deep(.game-button--secondary:hover) {
+	background: rgba(0, 234, 255, 0.1);
+	color: #ffffff;
+	border-color: #ffffff;
+	box-shadow:
+		0 0 16px var(--neon-cyan),
+		0 0 32px rgba(0, 234, 255, 0.45),
+		inset 0 0 14px rgba(0, 234, 255, 0.25);
+	transform: translateY(-1px);
+}
+
+.home-page :deep(.game-button--secondary:active) {
+	background: rgba(0, 234, 255, 0.18);
+	transform: translateY(1px);
+}
+
+/* ---------- Animations ---------- */
+@keyframes neon-flicker {
+	0%,
+	19%,
+	21%,
+	23%,
+	25%,
+	54%,
+	56%,
+	100% {
+		opacity: 1;
+		text-shadow:
+			0 0 8px rgba(255, 255, 255, 0.85),
+			0 0 18px var(--neon-pink),
+			0 0 38px var(--neon-magenta),
+			0 0 78px var(--neon-purple);
+	}
+	20%,
+	24%,
+	55% {
+		opacity: 0.82;
+		text-shadow: none;
+	}
+}
+
+@keyframes grid-drift {
+	0% {
+		background-position: 0 0, 0 0;
+	}
+	100% {
+		background-position: 48px 48px, 48px -48px;
+	}
 }
 </style>
