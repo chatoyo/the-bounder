@@ -177,13 +177,32 @@ export type SegmentDef =
 
 export interface LevelDef {
   readonly id: string
-  /** 关卡总宽度（像素），作相机/世界边界 */
+  /**
+   * 关卡总宽度（像素）。非 loop 模式作相机 / 世界边界；loop 模式下是"单个重复块"的宽度
+   * （除非用 `chunkWidth` 覆盖）。
+   */
   readonly width: number
   readonly height: number
   /** 关卡主题；LevelRunner 据此选贴图变体 */
   readonly biome: BiomeId
   /** 滚动策略；缺省 'auto-right' */
   readonly scroll?: LevelScrollDef
+  /**
+   * 水平无限循环 flag。true 时 LevelRunner 把 platforms / hazards / checkpoints
+   * 当作"周期块"，随相机推进滑动窗口式地前后生成；checkpoint 在每个 chunk 获得
+   * `${id}@${k}` 的唯一 id，spawnById 永久保留用于 respawn。
+   *
+   * pickups / npcs / boss-triggers / level-exits 仍然只在原始坐标出现一次
+   * （它们本来就是单次触发语义）。"无限关卡"与"会不会转场到下一关"是正交的：
+   *   - 想纯粹无限跑：关卡就别写 level-exit。
+   *   - 想跑一段再转场：正常写 level-exit，会在触碰后跳转 nextLevelId。
+   */
+  readonly loop?: boolean
+  /**
+   * loop 模式下的单块宽度。缺省 = `width`。把它设得小于 `width` 会在 [0, chunkWidth)
+   * 范围内重复，超出的 segment 会在原始 x 位置生成但不会循环。
+   */
+  readonly chunkWidth?: number
   /** 玩家初始出生点（若不指定，则使用首个 checkpoint） */
   readonly spawn?: { x: number; y: number }
   /** 背景视差图层（从远到近）；midground 本身不在这里描述 */

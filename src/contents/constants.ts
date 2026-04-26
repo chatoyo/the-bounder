@@ -76,8 +76,11 @@ export const GAME_CONFIG = {
 // 实现方式：相机向右匀速滚动；视觉上等价于"世界匀速向左流过屏幕"。
 // 玩家 X 轴被夹在相机可视窗口内（由 ScreenBoundsSystem 维护）。
 export const SCROLL_TUNING = {
-  /** 关卡默认滚动速度（像素/秒）；单关可以在 LevelDef.scroll.speed 覆盖 */
-  DEFAULT_SPEED: 90,
+  /**
+   * 关卡默认滚动速度（像素/秒）；单关可以在 LevelDef.scroll.speed 覆盖。
+   * 200 的节奏：20 秒过一屏，玩家 MOVE_SPEED=260 仍能挣扎向前。
+   */
+  DEFAULT_SPEED: 200,
   /** 玩家离左边屏幕边缘多少像素内会"贴墙"被压 */
   LEFT_BOUND_PADDING: 8,
   /** 玩家离右边屏幕边缘多少像素内会被挡住 */
@@ -103,6 +106,13 @@ export const PLAYER_TUNING = {
   MAX_HP: 3,
   INVULN_MS: 1000,
   MOVE_SPEED: 260,
+  /**
+   * 无输入时玩家水平默认前进速度（相对当前世界滚动速度的倍率）。
+   * < 1 → 玩家默认比世界慢一点，相机会缓缓把他往左推；按 D/→ 才能真正在屏幕上向右推进。
+   * = 1 → 默认与世界同步（屏幕上不动）；= 0 → 老行为（不按键就原地踏步）。
+   * 只在 `CameraDirector` 处于 auto-right 模式时生效；follow/locked 模式下为 0。
+   */
+  BASE_FORWARD_RATIO: 0.8,
   JUMP_VELOCITY: -560,
   /** 松开跳键时若仍在上升，纵速乘以该值 —— 实现"可变跳跃高度" */
   JUMP_CUT_MULTIPLIER: 0.45,
@@ -118,13 +128,22 @@ export const PLAYER_TUNING = {
   FIRE_COOLDOWN_MS: 220,
 
   // ---- 飞行能力（FlyCapability 用） ----
-  /** 飞行水平最高速 */
+  /**
+   * 飞行时无水平输入的"巡航速度"（= 世界滚动速度 × 该比率）。
+   * 1.0 = 在屏幕上悬停不动（玩家与世界同速）；< 1 会被相机推向左缘；
+   * > 1 会主动向右跑赢相机。
+   */
+  FLY_IDLE_RATIO: 1.0,
+  /** 飞行水平最高速 相对 巡航速度 的偏移上限 */
   FLY_SPEED_X: 320,
   /** 飞行垂直最高速 */
   FLY_SPEED_Y: 300,
   /** 飞行加速度（按键按下时从 0 到 max 的爬升） */
   FLY_ACCEL: 2200,
-  /** 松开按键后的阻尼（越大越干脆） */
+  /**
+   * 水平 / 垂直 idle 时对"目标速度"的收敛系数（每帧保留的倍数；越大越飘）。
+   * vx 的目标是 cruiseSpeed * FLY_IDLE_RATIO，vy 的目标是 0。
+   */
   FLY_DAMP: 0.82,
 } as const
 

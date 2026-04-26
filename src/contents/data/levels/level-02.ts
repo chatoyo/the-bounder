@@ -22,7 +22,8 @@ export const LEVEL_02: LevelDef = {
   biome: BIOME_IDS.SPACE,
   scroll: {
     mode: 'auto-right',
-    speed: 110,
+    // 比 DEFAULT_SPEED(200) 再快一点，保留 level-02 "更凶险" 的设计意图
+    speed: 240,
   },
   background: [
     // 夜空 —— 带星点

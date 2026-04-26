@@ -22,6 +22,7 @@ import type {
   PlayerRespawnedPayload,
 } from '@/contents/types'
 import { useEventBus } from '@/runtime'
+import type { CameraDirector } from '@/contents/systems/camera-director'
 import type { Capability } from './capabilities/capability'
 
 const eventBus = useEventBus()
@@ -55,6 +56,13 @@ export class Player {
 
   /** 受伤时用的闪烁 tween，避免多次叠加 */
   private damageFlashTween: Phaser.Tweens.Tween | null = null
+
+  /**
+   * 当前"世界滚动速度"的缓存（由 getCruiseSpeed() 惰性解析 scene.data['cameraDirector']）。
+   * Move / Fly 等 capability 通过这个值决定"无输入时默认向前推的速度"，避免每个
+   * capability 各自解析 director。
+   */
+  private cachedDirector: CameraDirector | null = null
 
   private scene: Phaser.Scene
 
@@ -111,6 +119,22 @@ export class Player {
     for (const cap of this.capabilities.values()) {
       cap.onAction?.(action, phase)
     }
+  }
+
+  /**
+   * 返回当前世界的"巡航速度"（= 相机 auto-scroll 速度）。
+   * - auto-right 关卡：返回关卡 scroll.speed（例 200 px/s）。
+   * - follow / locked 关卡：返回 0。
+   *
+   * 由 MoveCapability（按 BASE_FORWARD_RATIO 缩放）和 FlyCapability（按
+   * FLY_IDLE_RATIO 缩放）共同消费，统一"没按键默认以世界节奏往前漂"的语义。
+   */
+  getCruiseSpeed(): number {
+    if (!this.cachedDirector) {
+      const d = this.scene.data.get('cameraDirector') as CameraDirector | undefined
+      if (d) this.cachedDirector = d
+    }
+    return this.cachedDirector?.getAutoScrollSpeed() ?? 0
   }
 
   // -------------------------------------------------------------------------

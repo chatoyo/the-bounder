@@ -32,6 +32,16 @@ export interface PhaseContext {
 
 export interface Phase {
   readonly id: PhaseId
+  /**
+   * 若为 true，GameplayScene 在本 phase 期间会跳过所有"推进世界"的系统
+   * （cameraDirector / parallax / screenBounds / player.update / bullets /
+   * chunk spawner / NPC proximity / running-only 检测）。输入和 phaseController
+   * 自身仍然运行 —— 这样对话 / 过场里玩家能按键推进，phase 内部也能倒计时切走。
+   *
+   * Dialogue / Respawn / 将来的 Cutscene 都应置 true。Running / Boss 应置 false
+   * （或不定义）。缺省视作 false。
+   */
+  readonly freezesWorld?: boolean
   enter(data?: unknown): void
   exit(): void
   update?(time: number, delta: number): void
@@ -66,6 +76,11 @@ export class PhaseController {
 
   getCurrentId(): PhaseId | null {
     return this.currentId
+  }
+
+  /** 当前 phase 实例；scene 侧用来读 `freezesWorld` 等声明式属性。 */
+  getCurrent(): Phase | null {
+    return this.current
   }
 
   destroy(): void {
@@ -110,6 +125,7 @@ export class RunningPhase implements Phase {
  */
 export class RespawnPhase implements Phase {
   readonly id: PhaseId = 'respawn'
+  readonly freezesWorld = true
 
   private elapsed = 0
   /** 冻结时长（毫秒） */

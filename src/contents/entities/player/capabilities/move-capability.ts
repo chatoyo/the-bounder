@@ -3,6 +3,13 @@
  *
  * 读 InputSystem 的 isDown('move-left'/'move-right')，写 body.velocity.x 和
  * player.facing。不负责翻转 sprite 图像（那是视觉事）。
+ *
+ * 手感细节：
+ *   - 无左右输入时，玩家以 `player.getCruiseSpeed() × BASE_FORWARD_RATIO` 的速度
+ *     持续向右漂移（"自动向前跑"，且比世界慢一点）。真正"站在原地"需要按 A/←。
+ *   - follow / locked 模式下 `getCruiseSpeed()` 返回 0，漂移自动失效 → 传统平台
+ *     跳跃关行为不变。
+ *   - 飞行模式（`player.isFlying === true`）下完全交给 FlyCapability，此处 no-op。
  */
 
 import * as Phaser from 'phaser'
@@ -48,6 +55,11 @@ export class MoveCapability implements Capability {
     } else if (right && !left) {
       vx = PLAYER_TUNING.MOVE_SPEED
       this.player.facing = 1
+    } else {
+      // 无输入 → 按"世界节奏 × 比率"向前漂（auto-right 关卡下）
+      const ratio = Math.min(PLAYER_TUNING.BASE_FORWARD_RATIO, 1)
+      vx = this.player.getCruiseSpeed() * ratio
+      if (vx !== 0) this.player.facing = 1
     }
 
     body.setVelocityX(vx)

@@ -3,29 +3,37 @@
 Project conventions **and shared codebase state** for AI coding agents working on
 `momakoding-jam-starter-web` — a Vue 3 + Phaser 4 + TypeScript Game Jam starter.
 
-> **Multi-agent source of truth.** Sections 1–12 are the *rules*. Section **13 (Codebase State)** is the *living map* of everything that currently exists in `src/`. Any agent that adds, moves, renames, or deletes code **must** update §13 in the same turn, and append one line to §14 (Change Log). Stale registries silently break collaboration; outdated entries are worse than none.
+> **Multi-agent source of truth.** Sections 1–12 are the *rules*. Section **13 (Codebase State)** is the *living map* of everything that currently exists in `src/`. Agents **read** §13 freely while coding, but **must not edit this file (AGENTS.md) during normal feature work**. Doc updates are a pre-commit step that happens only when the user explicitly asks for them (see §0 below). Stale registries silently break collaboration; outdated entries are still worse than none — just make sure the fix lands in the right turn.
 
 ---
 
 ## 0. Multi-agent collaboration protocol
 
+### AGENTS.md edit policy (read this first)
+
+- **Do NOT modify AGENTS.md during feature work.** Finish the code. Do not bump `Last updated` dates, do not append to §13 / §14 / §13.10, do not move "WIP" rows — not as part of the same turn you wrote the code.
+- **AGENTS.md is edited only when the user explicitly asks**, typically right before they request a commit. Common phrasings that unlock doc edits: *"update AGENTS.md"*, *"sync the registry"*, *"prep for commit"*, *"fill in the change log"*. Without an explicit request, leave the doc alone.
+- **When the user does ask**, batch all deferred updates from the session into one coherent §13 + §14 edit (see "Pre-commit doc sync" below). Still respect the other rules in this section (no silent deletes, decision log rows for non-obvious trade-offs, etc.).
+- If you *discover* that §13 is already wrong (registry doesn't match the current code) while doing unrelated work, still don't auto-edit: mention the drift in your normal response so the user can decide when to correct it.
+
 ### The contract
 
 1. **Before coding**, skim §1–§12 once per session, then read the §13 subsection(s) relevant to your task.
-2. **While coding**, treat §13 tables as the authoritative list. If you need a new scene key / event / asset key / route / store, register it in §13 **before** wiring it up so other agents don't collide.
-3. **After coding**, do all of:
-   - Update the affected §13 table(s).
+2. **While coding**, treat §13 tables as the authoritative list for *reading*. Check it before adding scene keys / event keys / asset keys / routes / stores so other agents don't collide — but don't write to the doc yet. If a new key conflicts with §13, pick a different one; if §13 is clearly stale, raise it in chat.
+3. **After coding**, **do not edit AGENTS.md.** Keep a short mental (or scratchpad) list of what would need to change in §13 / §14 / §13.10 so you can produce a clean batch when the user asks.
+4. **Pre-commit doc sync (user-initiated only).** When the user explicitly asks to update AGENTS.md, do all of:
+   - Update the affected §13 table(s) for everything that landed since the last sync.
    - Bump `Last updated` in each touched subsection to today's date.
-   - Append a single-line entry to §14 (Change Log) with date, area, summary.
-   - If you introduced a non-obvious trade-off (physics engine swap, asset pipeline change, etc.), add a row to §13.10 (Decision Log). Never silently re-decide past choices.
+   - Append a single-line entry to §14 (Change Log) per coherent change, newest at the top.
+   - If any change introduced a non-obvious trade-off (physics engine swap, asset pipeline change, new dependency, etc.), add a row to §13.10 (Decision Log). Never silently re-decide past choices.
 
 ### Conflict-avoidance rules
 
 - **Namespaces are unique.** Scene keys, event keys, asset keys, and route paths must be unique globally. Check §13.3 / §13.5 / §13.6 / §13.2 before adding.
-- **One owner per feature.** When you start a multi-turn feature, add a `WIP` row to §13.9 with owner = your session id / agent name / date. When done, remove or mark `DONE`.
-- **No silent deletes.** If you delete code, move the registry row to a `~~strikethrough~~` line at the end of the table rather than removing it, so reviewers see history.
-- **No duplication of source-of-truth values.** Registries point to files; actual values (magic numbers, event names) live in TypeScript `as const` objects. If you find a mismatch, the code wins and §13 must be corrected.
-- **Atomic updates.** One feature → one coherent §13 + §14 edit. Don't batch unrelated refactors into the same doc patch.
+- **One owner per feature.** When you start a multi-turn feature, note it in chat so other agents know you're claiming that area. The §13.9 WIP row lands during the next user-initiated doc sync — do not add it preemptively.
+- **No silent deletes.** If you delete code, when the doc sync happens, move the registry row to a `~~strikethrough~~` line at the end of the table rather than removing it, so reviewers see history.
+- **No duplication of source-of-truth values.** Registries point to files; actual values (magic numbers, event names) live in TypeScript `as const` objects. If you find a mismatch, the code wins and §13 must be corrected *at the next doc sync*.
+- **Atomic updates.** One feature → one coherent §13 + §14 edit, applied at commit time. Don't batch unrelated refactors into the same doc patch.
 
 ### Read-before-write checklist (copy into your plan)
 
@@ -33,6 +41,7 @@ Project conventions **and shared codebase state** for AI coding agents working o
 - [ ] Read the registry table(s) for the layer I'm touching (scenes? events? assets?).
 - [ ] Confirm my new keys don't already exist.
 - [ ] Confirm nothing in §13.9 (WIP) is already claiming this area.
+- [ ] Remember: do NOT edit AGENTS.md in this turn. Save doc updates for when the user asks.
 
 ---
 

@@ -55,7 +55,7 @@ import { FlyCapability } from '../entities/player/capabilities/fly-capability'
 import { NpcEntity } from '../entities/npc/npc-entity'
 import { CameraDirector } from '../systems/camera-director'
 import { InputSystem } from '../systems/input-system'
-import { LevelRunner } from '../systems/level-runner'
+import { LevelRunner, LOOP_WORLD_MAX_X } from '../systems/level-runner'
 import { ParallaxSystem } from '../systems/parallax-system'
 import { ScreenBoundsSystem } from '../systems/screen-bounds-system'
 import { DialogueRunner } from '../systems/dialogue-runner'
@@ -98,6 +98,12 @@ export class GameplayScene extends Phaser.Scene {
   private npcs = new Map<string, NpcEntity>()
   /** 当前玩家站在哪个 NPC 的交互区内（可按 E 对话）*/
   private currentNpcInRange: NpcEntity | null = null
+  /**
+   * 本次 scene 生命周期内已触发过对话的 NPC id 集合。
+   * Auto-scroll 关卡里玩家停不下来，按 E 的窗口极短；所以进入 zone 的那一刻
+   * 就自动开对话，本集合用来保证同一 NPC 一次 scene 只触发一次（避免重进对话循环）。
+   */
+  private seenNpcs = new Set<string>()
 
   /** 初始从上一场景 / 重启带来的启动数据 */
   private initData: IGameplaySceneData = {}
@@ -119,6 +125,7 @@ export class GameplayScene extends Phaser.Scene {
     this.initData = data ?? {}
     this.npcs = new Map()
     this.currentNpcInRange = null
+    this.seenNpcs = new Set()
   }
 
   // =========================================================================
@@ -181,7 +188,9 @@ export class GameplayScene extends Phaser.Scene {
 
     // ---- 7. 相机 ----
     this.cameraDirector = new CameraDirector(this)
-    this.cameraDirector.setBounds(0, 0, level.width, level.height)
+    // loop 模式：相机 X 边界设成 "事实上无限"（10 亿像素），让 auto-scroll 一直跑下去
+    const cameraWorldW = level.loop === true ? LOOP_WORLD_MAX_X : level.width
+    this.cameraDirector.setBounds(0, 0, cameraWorldW, level.height)
     const scrollMode = level.scroll?.mode ?? 'auto-right'
     this.savedScrollMode = scrollMode
     if (scrollMode === 'auto-right') {
@@ -215,13 +224,17 @@ export class GameplayScene extends Phaser.Scene {
     this.levelRunner.forEachNpc((def) => {
       const npc = new NpcEntity(this, def)
       this.npcs.set(def.id, npc)
-      // 与玩家 zone overlap → 标记 currentNpcInRange
+      // 与玩家 zone overlap → 标记 currentNpcInRange + 尝试自动触发对话。
+      // 在 auto-scroll 关卡里玩家停不下来，按 E 的窗口极短 —— 所以入 zone
+      // 即开讲，按过一次就再也不触发（seenNpcs 里留痕）。E 键仍然保留作为
+      // follow / locked 关卡下的显式入口（见 onInputAction）。
       this.physics.add.overlap(this.player.sprite, npc.zone, () => {
         if (this.currentNpcInRange !== npc) {
           this.currentNpcInRange?.setHighlighted(false)
           this.currentNpcInRange = npc
           npc.setHighlighted(true)
         }
+        this.maybeAutoStartDialogue(npc)
       })
     })
 
@@ -333,7 +346,18 @@ export class GameplayScene extends Phaser.Scene {
   // =========================================================================
 
   update(time: number, delta: number): void {
+    // ---- 始终运行：输入 + 相位控制器 ----
+    // 对话 / 重生阶段也要推进 —— 玩家要按键翻页，phase 自己要倒计时切走。
     this.inputSystem.update(time, delta)
+    this.phaseController.update(time, delta)
+
+    // 若当前 phase 冻结世界（Dialogue / Respawn / 将来的 Cutscene），
+    // 跳过所有"推进世界"的系统。这一层负责把相机 auto-scroll / 视差 /
+    // screenBounds / chunk spawner / 玩家 capability / 子弹池 / running 检测 全部静止。
+    // physics.world.pause() 仍由各自 phase.enter() 负责物理层面的冻结。
+    if (this.phaseController.getCurrent()?.freezesWorld === true) return
+
+    // ---- 世界更新 ----
     this.player.update(time, delta)
     this.playerBullets.cull(time)
 
@@ -342,13 +366,18 @@ export class GameplayScene extends Phaser.Scene {
 
     // 飞行态下开启 Y 夹紧
     this.screenBounds.setConfig({ clampY: this.player.isFlying })
-    // Boss phase / Dialogue phase 时关闭自动 crush 判定（玩家应该能自由移动）
+    // Boss phase 时关闭自动 crush 判定（对话 phase 已经被 freezesWorld 拦在外面）
     const phaseId = this.phaseController.getCurrentId()
-    const inCombatOrDialogue = phaseId === PHASE_IDS.BOSS || phaseId === PHASE_IDS.DIALOGUE
-    this.screenBounds.setEnabled(this.savedScrollMode === 'auto-right' && !inCombatOrDialogue)
+    const inCombat = phaseId === PHASE_IDS.BOSS
+    this.screenBounds.setEnabled(this.savedScrollMode === 'auto-right' && !inCombat)
     this.screenBounds.update(time, delta)
 
-    this.phaseController.update(time, delta)
+    // 水平无限循环：让 LevelRunner 根据相机位置维护 platform / hazard /
+    // checkpoint 的前后生成（非 loop 关卡下 tickSpawner 是 no-op）。
+    if (this.levelRunner.isLooping()) {
+      const cam = this.cameras.main
+      this.levelRunner.tickSpawner(cam.scrollX, cam.width)
+    }
 
     // NPC 离开检测：玩家离开 NPC 的 zone 后清 currentNpcInRange
     this.tickNpcProximity()
@@ -417,11 +446,27 @@ export class GameplayScene extends Phaser.Scene {
     if (this.phaseController.getCurrentId() !== PHASE_IDS.RUNNING) return
     const npc = this.currentNpcInRange
     if (!npc) return
+    this.startDialogueFor(npc)
+  }
+
+  /**
+   * Zone overlap 自动入话。仅对本 scene 还没触发过的 NPC 生效，且仅在
+   * running phase 下 —— 防止 respawn 落在 NPC 身上 / 对话中再次触发。
+   */
+  private maybeAutoStartDialogue(npc: NpcEntity): void {
+    if (this.phaseController.getCurrentId() !== PHASE_IDS.RUNNING) return
+    if (this.seenNpcs.has(npc.id)) return
+    this.startDialogueFor(npc)
+  }
+
+  /** 对话开口的单一入口：验证 dialogue def、打 seenNpcs、transition。 */
+  private startDialogueFor(npc: NpcEntity): void {
     const def = DIALOGUE_REGISTRY[npc.dialogueId]
     if (!def) {
       console.warn(`[GameplayScene] NPC ${npc.id} 指向未知对话 ${npc.dialogueId}`)
       return
     }
+    this.seenNpcs.add(npc.id)
     this.phaseController.transition(PHASE_IDS.DIALOGUE, def)
   }
 
@@ -477,8 +522,16 @@ export class GameplayScene extends Phaser.Scene {
   }
 
   private onBossPhaseCleared = (): void => {
-    // Boss 已死 → 自动 completeLevel（用当前关卡的 level-exit 的 nextLevelId）
-    // 没 level-exit 就直接 restart 本关
+    // Loop 关卡：boss 是关卡中的一次性事件，打完之后继续无限跑。重启 auto-scroll
+    // 即可 —— firedBossTriggers 保证同一 trigger 不会在后续 chunk 里再发一次。
+    if (this.levelRunner.isLooping()) {
+      const speed: number = this.levelDef.scroll?.speed ?? SCROLL_TUNING.DEFAULT_SPEED
+      this.cameraDirector.autoScrollRight(speed)
+      // PhaseController 的 BossPhase.onBossDefeated 已经 transition 到 running。
+      return
+    }
+
+    // 非 loop：老行为 —— 查找 level-exit 决定转场到哪一关
     const anyExit = Array.from(
       (this.levelRunner.getDef().segments as readonly { type: string }[]).filter(
         (s) => s.type === 'level-exit',
