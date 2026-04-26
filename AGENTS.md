@@ -231,14 +231,14 @@ Full troubleshooting catalog: `.clinerules/02-trouble-shoot.md`.
 
 > Update discipline: every row below must point to a real file/symbol in `src/`. If you rename or delete it, update the row *in the same turn*. Do not remove rows — mark them `~~deprecated~~` at the bottom of the table.
 
-**Current scaffold status:** *Phase A2 architecture refactor shipped — world auto-scrolls leftward (camera auto-scrolls right at fixed speed), three parallax layers (background / midground / foreground), player clamped inside camera viewport, double-jump by default, flight unlocked via `flight-orb` pickup. APIs (types + constants + segment defs) reserved for NPC / dialogue / boss / pickup / level-exit; runtime entities for those arrive in the demo commit.*
-**Scaffold last updated:** 2026-04-26;13:10
+**Current scaffold status:** *Phase A2 architecture + comprehensive demo shipped. Two playable levels (grass → space biome) with auto-scroll + 3-layer parallax; double-jump default; flight unlocked via NPC dialogue choice or mid-level pickup. NPC dialogue system with branching choices + commands (grant-skill / equip-skill). Boss fight ("影之使徒") at end of level-02: camera lock + enemy bullet pool + HP bar.*
+**Scaffold last updated:** 2026-04-26;14:00
 
 ---
 
 ## 13.1 Directory map
 
-*Last updated: 2026-04-26;13:10*
+*Last updated: 2026-04-26;14:00*
 
 ```
 momakoding-gamejam-starter-web/
@@ -292,8 +292,12 @@ momakoding-gamejam-starter-web/
 │   │   │   │       │                        # 空中跳次数 (MAX_AIR_JUMPS=1 → 二段跳)
 │   │   │   │       ├── shoot-capability.ts # 射击；持有 BulletPool 引用
 │   │   │   │       └── fly-capability.ts   # 4 方向自由飞行；关重力；isFlying=true
-│   │   │   └── projectile/
-│   │   │       └── bullet-pool.ts      # 玩家子弹对象池 + cull by lifetime
+│   │   │   ├── projectile/
+│   │   │   │   └── bullet-pool.ts      # 通用子弹对象池（玩家 + 敌方共用）
+│   │   │   ├── npc/
+│   │   │   │   └── npc-entity.ts       # 剧情 NPC：sprite + zone + "!" 气泡；暴露 dialogueId
+│   │   │   └── boss/
+│   │   │       └── boss-entity.ts      # Boss 占位：悬停 + 三连散射 + HP 条事件
 │   │   ├── systems/
 │   │   │   ├── input-system.ts         # 按键 → ActionId；mask / 边沿事件 / 连续查询
 │   │   │   ├── camera-director.ts      # follow / auto-right / lock 模式 + shake / flash
@@ -302,15 +306,25 @@ momakoding-gamejam-starter-web/
 │   │   │   ├── level-runner.ts         # LevelDef → StaticGroups；checkpoint / pickup /
 │   │   │   │                           # npc / boss-trigger / level-exit 查询 helper
 │   │   │   ├── skill-manager.ts        # 技能注册 / unlock / equip / suppress
-│   │   │   └── phase-controller.ts     # FSM + RunningPhase / RespawnPhase
+│   │   │   ├── dialogue-runner.ts      # DialogueDef FSM；发 DIALOGUE_* 事件 + commandHandler
+│   │   │   ├── phase-controller.ts     # FSM core + RunningPhase / RespawnPhase
+│   │   │   └── phases/
+│   │   │       ├── dialogue-phase.ts   # pause physics + input mask + auto-end on DIALOGUE_END
+│   │   │       └── boss-phase.ts       # lock camera + enemy bullets + colliders + emit phase-cleared
 │   │   ├── data/
 │   │   │   ├── levels/
-│   │   │   │   └── level-01.ts         # 草原 biome + 4 层视差 + auto-scroll + 飞行 orb
-│   │   │   └── skills/
-│   │   │       └── skill-registry.ts   # SkillId → SkillDef (shoot / flight)
+│   │   │   │   ├── level-01.ts         # 草原 biome + sage NPC + flight orb + exit→level-02
+│   │   │   │   └── level-02.ts         # 太空 biome + warrior NPC + boss-trigger(shadow) + exit→level-01
+│   │   │   ├── skills/
+│   │   │   │   └── skill-registry.ts   # SkillId → SkillDef (shoot / flight)
+│   │   │   ├── dialogues/
+│   │   │   │   ├── npc-sage.ts         # 开场 + 分支（送飞行 / 不送）
+│   │   │   │   ├── npc-warrior.ts      # Boss 前独白
+│   │   │   │   └── index.ts            # DIALOGUE_REGISTRY
+│   │   │   └── bosses/
+│   │   │       ├── boss-shadow.ts      # 影之使徒：10 HP + wisp 贴图
+│   │   │       └── index.ts            # BOSS_REGISTRY
 │   │   └── index.ts
-│   │   # 未来按需扩：entities/{npc,pickup,boss}; systems/{dialogue-runner};
-│   │   #   data/{dialogues,bosses,levels/level-02}
 │   │
 │   ├── runtime/               # ③ 运行时胶水层 (Vue 侧模块级单例)
 │   │   ├── event-bus.ts       # useEventBus() 单例
@@ -322,7 +336,8 @@ momakoding-gamejam-starter-web/
 │   │
 │   ├── components/
 │   │   ├── game-button.vue    # BEM-styled button, primary/secondary variants
-│   │   └── game-hud.vue       # HUD：HP hearts + 固定热键技能槽（J/K/L）
+│   │   ├── game-hud.vue       # HUD：HP hearts + 固定热键技能槽（J/K/L）+ boss HP bar
+│   │   └── dialogue-overlay.vue  # 对话覆盖层：speaker + text + choices；键盘 1/2/Enter 操作
 │   │
 │   └── pages/
 │       ├── home-page.vue      # Home menu
@@ -380,7 +395,7 @@ History mode: **hash** (`createWebHashHistory`).
 
 ## 13.4 Game entities
 
-*Last updated: 2026-04-26;13:10. Source of truth: `src/contents/entities/**` and `src/contents/systems/level-runner.ts` (静态对象).*
+*Last updated: 2026-04-26;14:00. Source of truth: `src/contents/entities/**` and `src/contents/systems/level-runner.ts` (静态对象).*
 
 实体按"谁管它"分三栏。活物 entity 走 `contents/entities/`；静态世界物件由 `LevelRunner` 从 `LevelDef` 批量物化，不必各自建文件；纯标记（NPC / boss-trigger / level-exit）存到 `LevelRunner` 内部 Map，scene 按 id/x 查。
 
@@ -389,7 +404,10 @@ History mode: **hash** (`createWebHashHistory`).
 | Entity | Type | Texture key | Defined in | Notes |
 |---|---|---|---|---|
 | Player | `Player` wrapper around `Phaser.Physics.Arcade.Sprite` | `player` | `src/contents/entities/player/player.ts` | 组合式：HP / 无敌帧 / facing / `isFlying` / capability registry。`MoveCapability` + `JumpCapability` 作为 passive 常驻；active 技能（`ShootCapability` / `FlyCapability`）经 `SkillManager` 动态挂载 |
-| Player bullets | `BulletPool` 包装 `Phaser.Physics.Arcade.Group` | `bullet` | `src/contents/entities/projectile/bullet-pool.ts` | 对象池 `maxSize = POOL_SIZES.PLAYER_BULLETS`；寿命超过 `PLAYER_TUNING.BULLET_LIFETIME_MS` 或撞墙即回池 |
+| Player bullets | `BulletPool` 包装 `Phaser.Physics.Arcade.Group` | `bullet` | `src/contents/entities/projectile/bullet-pool.ts` | 对象池 `maxSize = POOL_SIZES.PLAYER_BULLETS`；寿命超过 `PLAYER_TUNING.BULLET_LIFETIME_MS` 或撞墙即回池。**现已通用化**：构造器接受 `textureKey + maxSize + lifetimeMs`，敌方子弹池也用这个类 |
+| Enemy bullets | `BulletPool` 实例 | `enemy-bullet` | BossPhase 内部 | 仅在 boss phase 生命周期内存在；`maxSize = POOL_SIZES.ENEMY_BULLETS = 48`，寿命 2000ms |
+| NPC | `NpcEntity` | `npc-sage` / `npc-merchant` / `npc-warrior` | `src/contents/entities/npc/npc-entity.ts` | 无物理 sprite + `Phaser.GameObjects.Zone`（static body）作交互 hitbox + 浮动 "!" 气泡；暴露 `id` / `dialogueId` |
+| Boss | `BossEntity` | `boss-hulk` / `boss-wisp` / `boss-serpent` | `src/contents/entities/boss/boss-entity.ts` | dynamic body（关重力 + immovable）；悬停摆动 + 三连散射攻击；`takeHit(n)` 扣 HP 并发 `BOSS_HP_CHANGED`；0 HP → `BOSS_DEFEATED` + 死亡动画 |
 
 ### Capabilities (挂在 Player 上的能力单元)
 
@@ -436,7 +454,7 @@ History mode: **hash** (`createWebHashHistory`).
 
 ## 13.5 EventBus events
 
-*Last updated: 2026-04-26;13:10. Source of truth: `src/contents/constants.ts` → `EVENT_KEYS`. Bus implementation: `src/engine/event-bus/event-bus.ts`.*
+*Last updated: 2026-04-26;14:00. Source of truth: `src/contents/constants.ts` → `EVENT_KEYS`. Bus implementation: `src/engine/event-bus/event-bus.ts`.*
 
 Payload 类型定义在 `src/contents/types.ts`（按事件一对一）。Typed 订阅端应把 `unknown` 强转为 payload 类型。
 
@@ -453,14 +471,14 @@ Payload 类型定义在 `src/contents/types.ts`（按事件一对一）。Typed 
 | `CHECKPOINT_REACHED` | `checkpoint:reached` | Phaser → Vue | `CheckpointReachedPayload` | `GameplayScene` checkpoint overlap | — (reserved for toast) |
 | `LEVEL_COMPLETED` | `level:completed` | Phaser → Vue | `LevelCompletedPayload` | `GameplayScene.completeLevel` | — (reserved; demo commit 会加过关面板) |
 | `PICKUP_COLLECTED` | `pickup:collected` | Phaser → Vue | `PickupCollectedPayload` | `GameplayScene.handlePickup` | — (reserved for toast) |
-| `DIALOGUE_START` | `dialogue:start` | Phaser → Vue | `DialogueStartPayload` | *(demo commit)* | *(demo commit: dialogue-overlay)* |
-| `DIALOGUE_NODE` | `dialogue:node` | Phaser → Vue | `DialogueNodePayload` | *(demo commit)* | *(demo commit)* |
-| `DIALOGUE_CHOICE_SELECTED` | `dialogue:choice-selected` | Vue → Phaser | `DialogueChoiceSelectedPayload` | *(demo commit)* | *(demo commit: DialogueRunner)* |
-| `DIALOGUE_ADVANCE` | `dialogue:advance` | Vue → Phaser | *(none)* | *(demo commit)* | *(demo commit: DialogueRunner)* |
-| `DIALOGUE_END` | `dialogue:end` | Phaser → Vue | `DialogueEndPayload` | *(demo commit)* | *(demo commit)* |
-| `BOSS_SPAWNED` | `boss:spawned` | Phaser → Vue | `BossSpawnedPayload` | *(demo commit: BossPhase.enter)* | *(demo commit: boss HP bar)* |
-| `BOSS_HP_CHANGED` | `boss:hp-changed` | Phaser → Vue | `BossHpChangedPayload` | *(demo commit)* | *(demo commit)* |
-| `BOSS_DEFEATED` | `boss:defeated` | Phaser → Vue | `BossDefeatedPayload` | *(demo commit)* | *(demo commit)* |
+| `DIALOGUE_START` | `dialogue:start` | Phaser → Vue | `DialogueStartPayload` | `DialogueRunner.start` | `components/dialogue-overlay.vue` |
+| `DIALOGUE_NODE` | `dialogue:node` | Phaser → Vue | `DialogueNodePayload` | `DialogueRunner.emitNode` | `components/dialogue-overlay.vue` |
+| `DIALOGUE_CHOICE_SELECTED` | `dialogue:choice-selected` | Vue → Phaser | `DialogueChoiceSelectedPayload` | `components/dialogue-overlay.vue` | `DialogueRunner.onChoice` |
+| `DIALOGUE_ADVANCE` | `dialogue:advance` | Vue → Phaser | *(none)* | `components/dialogue-overlay.vue` + `DialoguePhase.onInput` | `DialogueRunner.onAdvance` |
+| `DIALOGUE_END` | `dialogue:end` | Phaser → Vue | `DialogueEndPayload` | `DialogueRunner.end` | `components/dialogue-overlay.vue` + `DialoguePhase.onDialogueEnd` → transition running |
+| `BOSS_SPAWNED` | `boss:spawned` | Phaser → Vue | `BossSpawnedPayload` | `BossEntity` constructor (inside BossPhase) | `components/game-hud.vue` (boss HP bar) |
+| `BOSS_HP_CHANGED` | `boss:hp-changed` | Phaser → Vue | `BossHpChangedPayload` | `BossEntity.takeHit` / constructor | `components/game-hud.vue` |
+| `BOSS_DEFEATED` | `boss:defeated` | Phaser → Vue | `BossDefeatedPayload` | `BossEntity.die` | `components/game-hud.vue` + `BossPhase.onBossDefeated` |
 | `PHASE_CHANGED` | `phase:changed` | Phaser → Vue | `PhaseChangedPayload` | `PhaseController.transition` | — (reserved; debug log when `GameplayScene.debug`) |
 | `SKILL_UNLOCKED` | `skill:unlocked` | Phaser → Vue | `{ id: SkillId }` | `SkillManager.unlock` | — (reserved) |
 | `SKILL_EQUIPPED` | `skill:equipped` | Phaser → Vue | `SkillEquippedPayload` | `SkillManager.equip` | `components/game-hud.vue` |
@@ -602,6 +620,7 @@ When an EventBus payload becomes non-trivial (e.g. `GAME_OVER` carrying final sc
 | *(none)* | — | — | — |
 | ~~agent:kilo/2026-04-26~~ | ~~Phase A: runner skeleton~~ | ~~2026-04-26;12:27~~ | **DONE 2026-04-26;12:40** — vertical slice playable |
 | ~~agent:kilo/2026-04-26~~ | ~~Phase A2: auto-scroll + parallax + flight architecture~~ | ~~2026-04-26;12:55~~ | **DONE 2026-04-26;13:10** — see §14; architecture + APIs only, demo entities arrive in next commit |
+| ~~agent:kilo/2026-04-26~~ | ~~Demo: dialogue + NPC + boss + level-02~~ | ~~2026-04-26;13:30~~ | **DONE 2026-04-26;14:00** — see §14; all reserved event keys now live, boss HP bar in HUD, two playable levels |
 
 ---
 
@@ -638,6 +657,10 @@ Record non-obvious architectural choices so future agents don't re-litigate them
 | 2026-04-26;13:10 | **Level 间解锁通过 `IGameplaySceneData.unlockedSkills` 显式传递**，不引 Pinia | Phase A2 demo 只两关；显式传参比建 store 简单得多。真多关进度（成就 / 金币 / 重复挑战）出现时再升格到 `progressStore` |
 | 2026-04-26;13:10 | **跳跃次数配置化 `MAX_AIR_JUMPS`**（默认 1 → 二段跳） | "二段跳是默认能力"是本项目的设计倾向；改数字即可变三段跳 / 单段跳，不改 capability 代码 |
 | 2026-04-26;13:10 | **BIOME_IDS 与 `tile-{biome}` 纹理一一对应** | 关卡美术主题更换不改代码，换 `LevelDef.biome` 就行；BootScene 生成全部 biome 贴图，按需选 |
+| 2026-04-26;14:00 | **Phases 进入 `systems/phases/` 子目录** | 单文件一 phase：`dialogue-phase.ts` / `boss-phase.ts` 各自 import 独立，`phase-controller.ts` 仅保留 FSM core + 默认的 Running/Respawn。未来加 CutscenePhase / LevelEndPhase 只加文件，不膨胀核心 |
+| 2026-04-26;14:00 | **Phase ↔ Scene 交互走 `scene.data` 字典**（cameraDirector / playerBulletsGroup / bossPhaseLevelId） | 给 PhaseContext 再加字段会让 core phase 被迫感知 boss/enemy 概念；用 `scene.data.get(key)` 做"按需查找"更松耦合。BossPhase / DialoguePhase 自己的"scene-local 事件"用 `this.scene.events.emit` 而非 eventBus（eventBus 是 Vue ↔ Phaser 跨界用的） |
+| 2026-04-26;14:00 | **Boss 接触 / 子弹命中 colliders 在 BossPhase.enter 里挂，exit 里销毁** | 生命周期和 Boss 一致；RunningPhase 下不该存在 boss colliders 否则 player 会和"看不见的 boss"叠图。`Phaser.Physics.Arcade.Collider.destroy()` 是便宜操作，jam 阶段按 phase 边界挂拆是最清晰的模型 |
+| 2026-04-26;14:00 | **Flight 拾取 ≡ NPC "take" 选项**（两条路径解锁同一 skill） | Demo 里两关都能通关：sage 送 / 捡 orb / 进 level-02 必给。设计上"可选路径"比"强制路径"更符合 jam 可玩性调校；SkillManager.equip 幂等，重复拿不会炸 |
 
 ---
 
@@ -645,6 +668,7 @@ Record non-obvious architectural choices so future agents don't re-litigate them
 
 One line per change that touches §13. Newest at the top. Keep it short.
 
+- **2026-04-26;14:00** — Comprehensive demo on top of Phase A2. New entities `NpcEntity` + `BossEntity` (dir `entities/npc/` + `entities/boss/`); new `DialogueRunner` system + Vue `components/dialogue-overlay.vue`; `phase-controller.ts` split — `systems/phases/dialogue-phase.ts` + `systems/phases/boss-phase.ts`. `BulletPool` generalized (textureKey + maxSize + lifetimeMs params) so enemy bullets reuse it. New level `data/levels/level-02.ts` (space biome, Boss "影之使徒" at end, loops back to level-01). `level-01.ts` gains Sage NPC + `nextLevelId: 'level-02'`. Dialogue registry `data/dialogues/{npc-sage,npc-warrior,index}.ts`; boss registry `data/bosses/{boss-shadow,index}.ts`. All previously-reserved `DIALOGUE_*` / `BOSS_*` / `LEVEL_COMPLETED` / `PICKUP_COLLECTED` events now live; `components/game-hud.vue` renders boss HP bar. §13.1 / §13.4 / §13.5 updated; §13.10 +4 decisions.
 - **2026-04-26;13:10** — Phase A2 architecture refactor: auto-scroll + 3-layer parallax + screen-bound clamp + double-jump + flight capability/skill. New systems `ParallaxSystem` / `ScreenBoundsSystem`; `CameraDirector` gained `auto-right` mode; `JumpCapability` gained `MAX_AIR_JUMPS`; `Player.isFlying` flag; `FlyCapability` manages gravity + 4-dir input. `LevelDef` extended with `biome` / `scroll` / `background` / `foreground`; new segment types `pickup` / `npc` / `boss-trigger` / `level-exit` (runtime for NPC/boss arrives in demo commit). New EVENT_KEYS: `LEVEL_COMPLETED`, `PICKUP_COLLECTED`, `DIALOGUE_{START,NODE,CHOICE_SELECTED,ADVANCE,END}`, `BOSS_{SPAWNED,HP_CHANGED,DEFEATED}`. New ACTION_IDS: `MOVE_UP`, `MOVE_DOWN`, `ADVANCE`, `CHOICE_1`, `CHOICE_2`. New SKILL `flight`; new CAPABILITY `fly`; new BIOME_IDS / PICKUP_IDS. Many new asset keys (biome tiles, parallax layers, NPC/pickup/boss/enemy-bullet variants). 7 new §13.10 decisions.
 - **2026-04-26;12:40** — Phase A runner skeleton shipped. `SCENE_KEYS.GAME` → `SCENE_KEYS.GAMEPLAY`; `game-scene.ts` deleted, replaced by `gameplay-scene.ts`. New subtrees: `contents/{entities,systems,data}/**`. New `EVENT_KEYS`: PLAYER_{HP_CHANGED,DAMAGED,DIED,RESPAWNED}, CHECKPOINT_REACHED, PHASE_CHANGED, SKILL_{UNLOCKED,EQUIPPED,REVOKED}; dropped SCORE_UPDATE. New asset keys: bullet / hazard / checkpoint; dropped star. New HUD: `components/game-hud.vue`. `constants.ts` split into GAME_CONFIG / PLAYER_TUNING / CAMERA_TUNING / POOL_SIZES / PHASE_IDS / ACTION_IDS / SKILL_IDS / CAPABILITY_IDS. 7 new §13.10 decisions documented.
 - **2026-04-26;01:35** — 修正 `contents/` 分层描述（"UI 无关 + 与 Phaser 耦合"，不是"引擎无关"）；确认 scenes 留在 `contents/scenes/` 不外拎；新增"runtime → contents 必须走深路径"规则到 §11；同步 §13.10 决策日志（三条新决策）。

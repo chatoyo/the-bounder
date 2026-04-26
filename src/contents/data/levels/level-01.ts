@@ -104,8 +104,17 @@ export const LEVEL_01: LevelDef = {
     { type: 'checkpoint', id: 'mid-1', x: 1600, y: 536 },
     { type: 'checkpoint', id: 'mid-2', x: 2450, y: 536 },
 
-    // ----------------- 飞行道具（demo 效果） -----------------
-    // 放在 mid-1 之后、大坑之前 —— 拿到后大坑就算不用飞也能过，飞着更帅
+    // ----------------- NPC: 紫袍老人（开场对话 + 可选赠予飞行） -----------------
+    {
+      type: 'npc',
+      id: 'sage-intro',
+      x: 220,
+      y: 528,
+      dialogueId: 'npc-sage',
+      sprite: 'sage',
+    },
+
+    // ----------------- 飞行道具（保底：不走 sage 选项也能捡到） -----------------
     {
       type: 'pickup',
       id: 'flight-orb-1',
@@ -114,13 +123,13 @@ export const LEVEL_01: LevelDef = {
       y: 360,
     },
 
-    // ----------------- 关卡终点（demo commit 里会接 level-02） -----------------
+    // ----------------- 关卡终点 → 进入 level-02 -----------------
     {
       type: 'level-exit',
       id: 'exit',
       x: 3500,
       y: 300,
-      // nextLevelId 留空；demo 里会填 'level-02'
+      nextLevelId: 'level-02',
     },
   ],
 }

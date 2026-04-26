@@ -12,6 +12,9 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ACTION_IDS, EVENT_KEYS, PLAYER_TUNING } from '@/contents'
 import type {
   ActionId,
+  BossDefeatedPayload,
+  BossHpChangedPayload,
+  BossSpawnedPayload,
   PlayerHpChangedPayload,
   SkillEquippedPayload,
   SkillId,
@@ -46,12 +49,41 @@ const slots = computed(() =>
   })),
 )
 
+// ---- Boss HP bar 状态 ----
+const bossVisible = ref(false)
+const bossName = ref('')
+const bossHp = ref(0)
+const bossMaxHp = ref(1)
+const bossHpPct = computed(() =>
+  bossMaxHp.value > 0 ? Math.max(0, Math.min(100, (bossHp.value / bossMaxHp.value) * 100)) : 0,
+)
+
 // ---- EventBus handlers ----
 
 const onHpChanged = (payload: unknown) => {
   const p = payload as PlayerHpChangedPayload
   hp.value = p.current
   maxHp.value = p.max
+}
+
+const onBossSpawned = (payload: unknown) => {
+  const p = payload as BossSpawnedPayload
+  bossName.value = p.displayName
+  bossHp.value = p.maxHp
+  bossMaxHp.value = p.maxHp
+  bossVisible.value = true
+}
+
+const onBossHpChanged = (payload: unknown) => {
+  const p = payload as BossHpChangedPayload
+  bossHp.value = p.current
+  bossMaxHp.value = p.max
+}
+
+const onBossDefeated = (_payload: unknown) => {
+  // 用 payload 守卫 TS 未用告警（payload 本身我们无需内容）
+  void _payload as BossDefeatedPayload | undefined
+  bossVisible.value = false
 }
 
 const onSkillEquipped = (payload: unknown) => {
@@ -75,17 +107,33 @@ onMounted(() => {
   eventBus.on(EVENT_KEYS.PLAYER_HP_CHANGED, onHpChanged)
   eventBus.on(EVENT_KEYS.SKILL_EQUIPPED, onSkillEquipped)
   eventBus.on(EVENT_KEYS.SKILL_REVOKED, onSkillRevoked)
+  eventBus.on(EVENT_KEYS.BOSS_SPAWNED, onBossSpawned)
+  eventBus.on(EVENT_KEYS.BOSS_HP_CHANGED, onBossHpChanged)
+  eventBus.on(EVENT_KEYS.BOSS_DEFEATED, onBossDefeated)
 })
 
 onUnmounted(() => {
   eventBus.off(EVENT_KEYS.PLAYER_HP_CHANGED, onHpChanged)
   eventBus.off(EVENT_KEYS.SKILL_EQUIPPED, onSkillEquipped)
   eventBus.off(EVENT_KEYS.SKILL_REVOKED, onSkillRevoked)
+  eventBus.off(EVENT_KEYS.BOSS_SPAWNED, onBossSpawned)
+  eventBus.off(EVENT_KEYS.BOSS_HP_CHANGED, onBossHpChanged)
+  eventBus.off(EVENT_KEYS.BOSS_DEFEATED, onBossDefeated)
 })
 </script>
 
 <template>
   <div class="game-hud">
+    <!-- Boss HP bar (顶部居中) -->
+    <Transition name="boss-hp">
+      <div v-if="bossVisible" class="game-hud__boss">
+        <div class="game-hud__boss-name">{{ bossName }}</div>
+        <div class="game-hud__boss-bar">
+          <div class="game-hud__boss-bar-fill" :style="{ width: bossHpPct + '%' }" />
+        </div>
+      </div>
+    </Transition>
+
     <!-- 血量 -->
     <div class="game-hud__hp" :aria-label="`Player HP: ${hp}/${maxHp}`">
       <span
@@ -156,5 +204,33 @@ onUnmounted(() => {
 
 .game-hud__skill-name {
   @apply whitespace-nowrap;
+}
+
+/* ---- Boss HP bar ---- */
+
+.game-hud__boss {
+  @apply absolute left-1/2 top-3 flex w-[70%] max-w-xl -translate-x-1/2 flex-col items-center gap-1 pointer-events-none;
+}
+
+.game-hud__boss-name {
+  @apply text-sm font-bold tracking-wide text-pink-200 drop-shadow;
+}
+
+.game-hud__boss-bar {
+  @apply h-3 w-full overflow-hidden rounded-sm border border-pink-300/60 bg-slate-900/80;
+}
+
+.game-hud__boss-bar-fill {
+  @apply h-full bg-gradient-to-r from-pink-400 to-purple-500 transition-all duration-150 ease-out;
+}
+
+.boss-hp-enter-active,
+.boss-hp-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.boss-hp-enter-from,
+.boss-hp-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -12px);
 }
 </style>

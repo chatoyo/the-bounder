@@ -2,8 +2,9 @@
   <div class="game-demo">
     <!-- Phaser 画布挂载点 -->
     <div ref="gameContainer" class="game-demo__canvas">
-      <!-- Vue HUD 层：叠在 Phaser 画布上方；Phase A 内容为血量 + 技能槽 -->
+      <!-- Vue 覆盖层：HUD（HP / 技能槽 / boss 血条）+ 对话框 -->
       <GameHud />
+      <DialogueOverlay />
     </div>
   </div>
 </template>
@@ -13,6 +14,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { BootScene, GameplayScene } from '@/contents'
 import { useGame } from '@/runtime'
 import GameHud from '@/components/game-hud.vue'
+import DialogueOverlay from '@/components/dialogue-overlay.vue'
 
 const gameContainer = ref<HTMLDivElement>()
 const game = useGame()

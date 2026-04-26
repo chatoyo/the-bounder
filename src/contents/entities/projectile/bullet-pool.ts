@@ -19,9 +19,17 @@ export class BulletPool {
   readonly group: Phaser.Physics.Arcade.Group
 
   private scene: Phaser.Scene
+  /** 每颗子弹的最大存活时间；默认用玩家子弹寿命，敌人子弹可显式传入 */
+  private lifetimeMs: number
 
-  constructor(scene: Phaser.Scene, textureKey: string, maxSize: number) {
+  constructor(
+    scene: Phaser.Scene,
+    textureKey: string,
+    maxSize: number,
+    lifetimeMs: number = PLAYER_TUNING.BULLET_LIFETIME_MS,
+  ) {
     this.scene = scene
+    this.lifetimeMs = lifetimeMs
     this.group = scene.physics.add.group({
       defaultKey: textureKey,
       maxSize,
@@ -66,7 +74,7 @@ export class BulletPool {
       if (!b.active) return
       const spawnedAt = b.getData(BULLET_SPAWN_KEY) as number | undefined
       if (spawnedAt == null) return
-      if (time - spawnedAt > PLAYER_TUNING.BULLET_LIFETIME_MS) {
+      if (time - spawnedAt > this.lifetimeMs) {
         this.kill(b)
       }
     })
