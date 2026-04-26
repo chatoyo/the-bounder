@@ -94,6 +94,15 @@ onBeforeUnmount(() => {
 
 <template>
 	<div class="home-page">
+		<video
+			class="home-page__video"
+			src="/videos/title.mp4"
+			autoplay
+			loop
+			muted
+			playsinline
+			aria-hidden="true"
+		/>
 		<div class="home-page__grid" aria-hidden="true" />
 		<div class="home-page__scanlines" aria-hidden="true" />
 
@@ -122,12 +131,33 @@ onBeforeUnmount(() => {
 	--neon-bg-2: #1a0735;
 
 	@apply relative flex min-h-screen flex-col items-center justify-center gap-12 overflow-hidden;
+	background-color: var(--neon-bg-0);
+	color: #e8f6ff;
+	user-select: none;
+}
+
+/* Full-bleed background video */
+.home-page__video {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	pointer-events: none;
+	z-index: 0;
+}
+
+/* Cyberpunk color wash on top of the video so the neon palette still reads */
+.home-page::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	z-index: 1;
 	background:
 		radial-gradient(ellipse at 20% 10%, rgba(255, 45, 149, 0.25), transparent 55%),
 		radial-gradient(ellipse at 80% 90%, rgba(0, 234, 255, 0.22), transparent 55%),
-		linear-gradient(180deg, var(--neon-bg-0) 0%, var(--neon-bg-1) 50%, var(--neon-bg-2) 100%);
-	color: #e8f6ff;
-	user-select: none;
+		linear-gradient(180deg, rgba(5, 2, 13, 0.55) 0%, rgba(10, 4, 32, 0.35) 50%, rgba(26, 7, 53, 0.55) 100%);
 }
 
 /* Perspective cyber-grid floor */
@@ -135,6 +165,7 @@ onBeforeUnmount(() => {
 	position: absolute;
 	inset: 0;
 	pointer-events: none;
+	z-index: 2;
 	background-image:
 		linear-gradient(rgba(0, 234, 255, 0.18) 1px, transparent 1px),
 		linear-gradient(90deg, rgba(255, 45, 149, 0.18) 1px, transparent 1px);
@@ -149,13 +180,12 @@ onBeforeUnmount(() => {
 	position: absolute;
 	inset: 0;
 	pointer-events: none;
-	background: repeating-linear-gradient(
-		to bottom,
-		rgba(255, 255, 255, 0.03) 0px,
-		rgba(255, 255, 255, 0.03) 1px,
-		transparent 1px,
-		transparent 3px
-	);
+	z-index: 3;
+	background: repeating-linear-gradient(to bottom,
+			rgba(255, 255, 255, 0.03) 0px,
+			rgba(255, 255, 255, 0.03) 1px,
+			transparent 1px,
+			transparent 3px);
 	mix-blend-mode: overlay;
 	opacity: 0.6;
 }
@@ -170,7 +200,7 @@ onBeforeUnmount(() => {
 		0 0 38px var(--neon-magenta),
 		0 0 78px var(--neon-purple);
 	animation: neon-flicker 3.2s infinite;
-	z-index: 1;
+	z-index: 4;
 }
 
 .home-page__title::before,
@@ -199,7 +229,7 @@ onBeforeUnmount(() => {
 
 .home-page__nav {
 	@apply relative flex flex-col items-center gap-4;
-	z-index: 1;
+	z-index: 4;
 }
 
 /* ---------- Neon overrides for GameButton (scoped via :deep) ---------- */
@@ -265,6 +295,7 @@ onBeforeUnmount(() => {
 
 /* ---------- Animations ---------- */
 @keyframes neon-flicker {
+
 	0%,
 	19%,
 	21%,
@@ -280,6 +311,7 @@ onBeforeUnmount(() => {
 			0 0 38px var(--neon-magenta),
 			0 0 78px var(--neon-purple);
 	}
+
 	20%,
 	24%,
 	55% {
@@ -292,6 +324,7 @@ onBeforeUnmount(() => {
 	0% {
 		background-position: 0 0, 0 0;
 	}
+
 	100% {
 		background-position: 48px 48px, 48px -48px;
 	}
