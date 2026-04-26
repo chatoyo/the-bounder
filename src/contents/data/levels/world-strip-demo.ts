@@ -1,5 +1,6 @@
 /**
- * Level：world-strip 循环演示 —— 用 `public/pics/1.png` / `2.png` / `3.jpg` 拼接。
+ * Level：world-strip 线性演示 —— 用 `public/pics/1.png` / `2.png` / `3.png` / `4.jpg`
+ * 拼接；跑完 7 张图后把玩家扔进 boss 专用场景（world-strip-boss）。
  *
  * 数据模型：
  *   - `WorldStripLoopDef.images`：一串变宽定高的底图。
@@ -7,6 +8,10 @@
  *     chunk 空间中 `image_{i+1}.leftX = image_i.leftX + image_i.width - image_i.overlapNext`。
  *   - `WorldStripImageDef.sections`：本图内的地面轮廓段（显示坐标系内的局部 x + 厚度）。
  *   - `WorldStripImageDef.url`：真实素材的相对 URL（有值时 BootScene 走 load.image）。
+ *   - `WorldStripLoopDef.loop=false`（本关）：整条 strip 只跑一次，跑到底后相机被
+ *     camera.bounds clamp 在 `chunkWidth - cam.width`，世界"停下来"。玩家继续向前漂
+ *     （MoveCapability 的 BASE_FORWARD_RATIO × cruise 始终 > 0），被 screen-bounds
+ *     夹到视口右缘 → 触碰下方那个 `to-boss` level-exit → 载入 world-strip-boss。
  *
  * 编译到 LevelDef：
  *   - `buildWorldStripLevel` 把每段 section 翻译成一个 `invisible: true` 的
@@ -14,36 +19,22 @@
  *     `height` = `groundHeight`（矩形从地面上沿一直延伸到图片底边）。
  *   - 落在后一张图 overlap 范围内的 section 会被裁剪 / 丢弃 —— 视觉上也被后图覆盖了，
  *     让后图的 sections 接管那段地面。
- *   - 关卡 `loop: true` + `chunkWidth = 所有 (width - overlapNext) 的和`；
- *     LevelRunner 的周期 spawner 会让 platforms / checkpoints 跟随相机无限循环。
- *   - 每张图的起点各放一个 checkpoint，loop 模式下获得 `@${k}` 后缀永久保留，
- *     玩家死后重生到最近触达的那一个。
+ *   - `chunkWidth = 所有 (width - overlapNext) 的和`；loop=false 下 chunkWidth 也就是
+ *     `LevelDef.width`（相机 / 物理世界的真实右边界）。
+ *   - 每张图的起点各放一个 checkpoint，玩家死后重生到最近触达的那一个。
  *
- * 本关卡数据（真实素材）：
- *   height = 672（与 1.png / 2.png 原生分辨率一致；3.jpg 原生 3018×1280，
- *                WorldStripSystem 按显示宽度 setDisplaySize 缩放到 ~1584×672）。
+ * 本关卡数据（真实素材；总 chunkWidth = 8992 像素）：
+ *   - img-0 (1.png, 1569×672, overlapNext=460, 3 段阶梯 h=170/150/126)
+ *   - img-1 (2.png, 1569×672, overlapNext=550, 平地 h=126)
+ *   - img-2 (3.png, 3136×1344→1584×672, overlapNext=0, 平地 h=126)
+ *   - img-3 (1.png 重复)
+ *   - img-4 (2.png 重复)
+ *   - img-5 (3.png 重复)
+ *   - img-6 (4.jpg, 3018×1280→1568×672, overlapNext=0, 平地 h=126) ← "最后一张图"
  *
- *   image-1（1.png，1569×672）：overlapNext=120，地面剖面：
- *     [0..876] h=209 / [876..1046] h=190 / [1046..1569] h=165。
- *     → 前 1449px 可见；最后 120px 被 image-2 盖住。
- *
- *   image-2（2.png，1569×672）：overlapNext=200，地面剖面：
- *     [0..1569] h=165 整段平地。→ 前 1369px 可见；最后 200px 被 image-3 盖住。
- *
- *   image-3（3.jpg，原生 3018×1280，缩放到 1584×672 显示）：
- *     overlapNext=0（回到 image-1 的接缝无 overlap）；地面剖面：
- *     [0..1584] h=165 整段平地。显示尺寸下原 400px overlap 约对应 ~210px，
- *     这里按用户声明取 200px 在 image-2 端体现。
- *
- *   chunkWidth = (1569-120) + (1569-200) + (1584-0) = 1449 + 1369 + 1584 = 4402。
- *
- * 循环接缝：image-3 末端（h=165 → 地面顶 y=507）→ image-1 起点（h=209 → 地面顶 y=463）
- * 有 44px 的"台阶"。玩家跳跃峰高 ≈143px（JUMP_VELOCITY=-560 / GRAVITY=1100），
- * 单跳即可越过；不想要接缝台阶可以把 image-3 末端加一段 h=209 的 section。
- *
- * Boss（影之使徒）：boss-trigger 放在 chunk x=3500（image-3 境内，接缝之前）。
- * `LevelRunner.firedBossTriggers` 保证首圈触发一次 —— 之后玩家继续跑圈就不会
- * 再次遇到；想做"循环 boss"需要在 LevelRunner 里重置触发状态（后话）。
+ * Level-exit "to-boss"：放在 chunk x=8950（world-strip-final 境内，最右端附近）。
+ * 相机 clamp 后玩家被 screen-bounds 夹到 x≈8971，|8971-8950|=21 < 40（查找半径），
+ * findLevelExitAt 命中 → completeLevel('world-strip-boss') → scene.restart 进入 boss 场景。
  */
 
 import { BIOME_IDS } from '@/contents/constants'
@@ -57,18 +48,19 @@ import type {
   WorldStripLoopDef,
   WorldStripPlacement,
 } from '@/contents/types'
-
-/**
- * 每张图片中 checkpoint（= 出生点）相对图片左缘的距离。
- *
- * 取 400 是因为主相机视口是 800×600（GAME_CONFIG.WIDTH）。GameplayScene 的
- * 自动滚动模式会把相机初始化在 `spawn.x - camera.width/2 = 0`，使玩家刚好
- * 落在视口横向正中央 —— 用户要求的"更居中 spawn"就落地在这一个常量上。
- *
- * 副作用：每圈（chunk）的 `strip-img-*@k` checkpoint 也都会位于本图起点向
- * 右 400px 处，而不是贴边；auto-scroll 追上来之前玩家有充分的反应距离。
- */
-const SPAWN_PAD_X = 400
+// 循环依赖注意：boss 场景 (world-strip-boss.ts) 反向 import 本文件的 `buildWorldStripLevel`，
+// 而且**在它自己的顶层 const 里立即调用**（`export const WORLD_STRIP_BOSS_BUILD = buildWorldStripLevel(...)`）。
+// 因此模块初始化顺序是：
+//   1. 本文件顶部执行到下面这行 `import { WORLD_STRIP_BOSS_BUILD } from './world-strip-boss'`
+//   2. 暂停本文件，去执行 world-strip-boss.ts
+//   3. boss.ts 执行 `buildWorldStripLevel(WORLD_STRIP_BOSS)` —— **此时本文件还没跑完，任何
+//      在此行下方的模块级 `const`（SPAWN_PAD_X 曾在这里、以及本文件底部那几个 export const）
+//      都还在 TDZ**
+//   4. boss.ts 执行完，本文件从 import 后继续跑
+// 规则：builder 函数体只能读**函数参数**或**闭包内定义的局部 const**，绝不能读模块级 const；
+// 否则立即踩 "Cannot access X before initialization"。下面 `buildWorldStripLevel` 的开头把
+// SPAWN_PAD_X 作为函数局部变量定义，就是这个约束的体现。
+import { WORLD_STRIP_BOSS_BUILD } from './world-strip-boss'
 
 // =============================================================================
 // 演示数据
@@ -84,6 +76,8 @@ const WORLD_STRIP_DEMO: WorldStripLoopDef = {
   id: 'world-strip-demo',
   height: 672,
   biome: BIOME_IDS.GRASS,
+  // 非循环：跑完 7 张图就让相机 clamp，level-exit 接管去 boss 场景。
+  loop: false,
   scroll: { mode: 'auto-right', speed: 180 },
   images: [
     // 1.png：1569×672 原生；三段阶梯下降 209 → 190 → 165
@@ -153,15 +147,16 @@ const WORLD_STRIP_DEMO: WorldStripLoopDef = {
     },
   ],
   extraSegments: [
-    // Boss："影之使徒"（boss-shadow）在第一圈 x=3500 登场；BossPhase 不锁相机，
-    // auto-scroll 继续推进，boss 从屏幕右侧滑入并跟随视口。nextLevelId 留空 →
-    // 击破后走 loop 关卡的"不结算"分支（GameplayScene.onBossPhaseCleared 恢复
-    // auto-scroll），玩家继续跑圈，不会被转场打断。
+    // 终点：跑完最后一张图 (world-strip-final, x∈[7424, 8992)) 后，相机 clamp 在
+    // x=8192，screen-bounds 把玩家夹到 x≈8971。此 level-exit 在 x=8950, y=540 处，
+    // findLevelExitAt(player.x, player.y, 40) 会命中 → completeLevel('world-strip-boss')。
+    // 视觉上玩家"被世界停下，但自己继续漂到最右侧，然后场景切到 boss 场景"。
     {
-      type: 'boss-trigger',
-      id: 'shadow-trigger',
-      x: 3500,
-      bossId: 'boss-shadow',
+      type: 'level-exit',
+      id: 'to-boss',
+      x: 8950,
+      y: 540,
+      nextLevelId: 'world-strip-boss',
     },
   ],
 }
@@ -172,11 +167,32 @@ const WORLD_STRIP_DEMO: WorldStripLoopDef = {
 
 /**
  * 把 WorldStripLoopDef 编译成 LevelDef。
- * 产出的 LevelDef 永远是 `loop: true`，其 segments 仅包含不可见 platform +
- * 起点 checkpoint；pickups / NPCs / bosses 可以由调用方另行 merge 进去。
+ * 产出的 LevelDef 的 `loop` 跟随 `strip.loop`（缺省 true）：
+ *   - loop=true（默认）：segments 里的 platforms/checkpoints 被当作周期模板，
+ *     LevelRunner 每 chunk 复制一份；WorldStripSystem 同步滑窗铺图。
+ *   - loop=false：整条 strip 只播放一遍，相机到达世界右端即 clamp；适合
+ *     "跑到终点 → level-exit → 下一关" 的线性关卡。
+ * pickups / NPCs / bosses 可以由调用方另行 merge 进去。
  */
 export function buildWorldStripLevel(strip: WorldStripLoopDef): BuiltWorldStripLevel {
+  // 每张图片中 checkpoint（= 出生点）相对图片左缘的距离。
+  //
+  // 取 400 是因为主相机视口是 800×600（GAME_CONFIG.WIDTH）。GameplayScene 的
+  // 自动滚动模式会把相机初始化在 `spawn.x - camera.width/2 = 0`，使玩家刚好
+  // 落在视口横向正中央；每圈 chunk 的 `strip-img-*@k` checkpoint 也都会位于
+  // 本图起点向右 400px 处，给玩家充分的反应距离。
+  //
+  // **故意放在函数内**而非模块顶层：world-strip-boss.ts 顶层会 import 本模块的
+  // `buildWorldStripLevel` 并立即调用（`export const WORLD_STRIP_BOSS_BUILD =
+  // buildWorldStripLevel(...)`）；这会在 demo 模块还卡在 boss 的 import（即
+  // 本文件顶部 56 行左右）时就执行函数体。若 `SPAWN_PAD_X` 是模块级 const，此
+  // 刻它还在 TDZ → `Cannot access 'SPAWN_PAD_X' before initialization`。做成
+  // 函数局部变量后每次调用各自初始化，彻底绕开模块初始化顺序。
+  const SPAWN_PAD_X = 400
+
   const height = strip.height
+  // default true for backward-compat (demo 原先无 loop 字段也必须 = true)
+  const loop = strip.loop !== false
 
   // ---- 1. 计算每张图在 chunk 空间的摆放 ----
   // 先算 leftX / rightX / chunkWidth，再回填 ownedEndX（= 下一张图的 leftX）。
@@ -277,7 +293,7 @@ export function buildWorldStripLevel(strip: WorldStripLoopDef): BuiltWorldStripL
     width: chunkWidth,
     height,
     biome: strip.biome ?? BIOME_IDS.GRASS,
-    loop: true,
+    loop,
     chunkWidth,
     scroll: strip.scroll ?? { mode: 'auto-right' },
     spawn: strip.spawn ?? defaultSpawn,
@@ -287,7 +303,7 @@ export function buildWorldStripLevel(strip: WorldStripLoopDef): BuiltWorldStripL
     segments,
   }
 
-  return { level, strip, placements, chunkWidth }
+  return { level, strip, placements, chunkWidth, loop }
 }
 
 function findGroundHeightAt(img: WorldStripImageDef, localX: number): number | null {
@@ -318,4 +334,5 @@ export const LEVEL_WORLD_STRIP_DEMO: LevelDef = WORLD_STRIP_DEMO_BUILD.level
 /** 按 levelId 索引的 strip 关卡；GameplayScene 据此决定是否挂 WorldStripSystem。 */
 export const WORLD_STRIP_LEVELS: Readonly<Record<string, BuiltWorldStripLevel>> = {
   [WORLD_STRIP_DEMO_BUILD.level.id]: WORLD_STRIP_DEMO_BUILD,
+  [WORLD_STRIP_BOSS_BUILD.level.id]: WORLD_STRIP_BOSS_BUILD,
 }

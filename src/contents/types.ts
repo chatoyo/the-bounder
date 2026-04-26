@@ -502,7 +502,7 @@ export interface WorldStripLoopDef {
   readonly id: string
   /** 所有图片共享的高度（像素） */
   readonly height: number
-  /** 按显示顺序的图片列表。最后一张之后循环回第一张。 */
+  /** 按显示顺序的图片列表。最后一张之后循环回第一张（仅当 `loop !== false`）。 */
   readonly images: readonly WorldStripImageDef[]
   /** 可选：覆盖 LevelDef.scroll（默认 auto-right, speed=SCROLL_TUNING.DEFAULT_SPEED） */
   readonly scroll?: LevelScrollDef
@@ -510,6 +510,13 @@ export interface WorldStripLoopDef {
   readonly biome?: BiomeId
   /** 可选：玩家初始 spawn；不填由 builder 基于第一张图的第一个 section 自动推导 */
   readonly spawn?: { readonly x: number; readonly y: number }
+  /**
+   * 是否无限循环（默认 true）。false 时 `buildWorldStripLevel` 产生 `LevelDef.loop=false`：
+   * 图片序列只播放一遍，相机推到世界右端即停（auto-right 模式下自动 clamp）。适合
+   * "跑到终点 → level-exit → 下一关" 的一次性关卡（例如把终点接到 boss 专用场景）。
+   * 物理段（platforms / hazards / checkpoints）相应只在原始坐标物化一份，不再按 chunk 复制。
+   */
+  readonly loop?: boolean
   /**
    * 可选：额外 segments（boss-trigger / pickup / npc / level-exit / 多余 checkpoint…）。
    * 这些会原样附加到 LevelDef.segments 末尾，坐标用 chunk 空间（= 第 0 圈的世界 x）。
@@ -539,4 +546,9 @@ export interface BuiltWorldStripLevel {
   readonly strip: WorldStripLoopDef
   readonly placements: readonly WorldStripPlacement[]
   readonly chunkWidth: number
+  /**
+   * 是否循环。true = WorldStripSystem 滑动窗口式复制图片；false = 只在 chunk 0 铺一遍。
+   * 与 `level.loop` 同步，独立存储方便 WorldStripSystem 用时不必反向查 LevelDef。
+   */
+  readonly loop: boolean
 }

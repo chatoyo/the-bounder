@@ -39,14 +39,26 @@ export class WorldStripSystem {
 
   /**
    * 每帧由 GameplayScene 调（仅在启用 strip 的关卡里生效）。
-   * 滑动窗口：把相机视窗前后各 1 个 chunk 的 strip 图片保持在场。
+   *
+   * loop=true：滑动窗口 —— 把相机视窗前后各 1 个 chunk 的 strip 图片保持在场。
+   * loop=false：整条 strip 只出现一次（chunk 0），超出部分相机 clamp 到世界右端；
+   *   首帧调用时把 chunk 0 铺好，之后保持不变。
    */
   tickSpawner(scrollX: number, viewWidth: number): void {
     const W = this.built.chunkWidth
     if (W <= 0) return
 
-    const minK = Math.max(0, Math.floor(scrollX / W) - 1)
-    const maxK = Math.floor((scrollX + viewWidth) / W) + 1
+    let minK: number
+    let maxK: number
+    if (this.built.loop) {
+      minK = Math.max(0, Math.floor(scrollX / W) - 1)
+      maxK = Math.floor((scrollX + viewWidth) / W) + 1
+    } else {
+      // 非循环：只保留 chunk 0 —— 相机到达世界右端 (W - cam.width) 就停了，
+      // 永远不会看到 chunk 1 之后的内容，没必要生成。
+      minK = 0
+      maxK = 0
+    }
 
     for (let k = minK; k <= maxK; k++) {
       if (!this.chunkObjects.has(k)) this.spawnChunk(k)

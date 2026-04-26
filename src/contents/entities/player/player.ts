@@ -66,7 +66,7 @@ export class Player {
 
   private scene: Phaser.Scene
 
-  constructor(scene: Phaser.Scene, x: number, y: number, textureKey = 'player') {
+  constructor(scene: Phaser.Scene, x: number, y: number, textureKey = 'player-run-1') {
     this.scene = scene
     this.maxHp = PLAYER_TUNING.MAX_HP
     this._hp = this.maxHp
@@ -74,11 +74,29 @@ export class Player {
     this.sprite = scene.physics.add.sprite(x, y, textureKey)
     this.sprite.setCollideWorldBounds(false) // 世界边界由 scene 侧 physics.world.setBounds 控制
 
+    // 真素材是 500 * 500 → 缩放到 64×64 在屏幕上显示。
+    // 改玩家视觉大小：动 SPRITE_SCALE 这一个数字就行（SIZE = 500 × SPRITE_SCALE）。
+    const SPRITE_SCALE = 0.2 // 500 × 0.15 = 75 显示像素
+    this.sprite.setScale(SPRITE_SCALE)
+
     const body = this.sprite.body as Phaser.Physics.Arcade.Body
     body.setGravityY(GAME_CONFIG.GRAVITY)
-    // 稍微收紧一点碰撞盒，减少视觉上"悬在空中"的感觉
-    body.setSize(26, 46)
-    body.setOffset(3, 1)
+
+    // 碰撞盒：比显示矩形小一圈，避免角落卡住 / "悬空"视觉。
+    // setSize / setOffset 的单位是**纹理像素（未缩放）**；body 会跟着 sprite.scale
+    // 自动缩小到屏幕空间。显示 64×64 下：
+    //   - 448 tex px × 0.0625 = 28 显示像素宽
+    //   - 720 tex px × 0.0625 = 45 显示像素高
+    // 角色贴图偏上 / 偏左的话调 offset 即可。
+    const BODY_TEX_W = 100
+    const BODY_TEX_H = 270
+    body.setSize(BODY_TEX_W, BODY_TEX_H)
+    body.setOffset((500 - BODY_TEX_W) / 2, (500 - BODY_TEX_H) / 2)
+
+    // "没有 idle 状态：玩家始终在跑" —— 一创建就开始循环播放跑步动画。
+    // 动画本体在 BootScene.registerPlayerAnimations 注册为 'player-run'。
+    // 空中时由 updateVisuals() 切到静态 'player-jump' 贴图。
+    this.sprite.anims.play('player-run', true)
   }
 
   // -------------------------------------------------------------------------
@@ -112,6 +130,38 @@ export class Player {
   update(time: number, delta: number): void {
     for (const cap of this.capabilities.values()) {
       cap.update?.(time, delta)
+    }
+    this.updateVisuals()
+  }
+
+  /**
+   * 视觉态切换：
+   *   - 地面 & 非飞行  → 循环播放 `player-run`
+   *   - 空中 OR 飞行    → 停动画、setTexture('player-jump') 静态跳跃帧
+   *
+   * 朝向翻转（setFlipX）由 MoveCapability / FlyCapability 按 `facing` 写入，
+   * 此处不插手，两侧图像都会跟着翻。
+   *
+   * 玩家死亡后保持最后一帧（die() 里已 setTint(0xff4444)），这里早退以免动画
+   * 盖过受击 tween / 红 tint。
+   */
+  private updateVisuals(): void {
+    if (!this._alive) return
+
+    const body = this.sprite.body as Phaser.Physics.Arcade.Body | null
+    if (!body) return
+
+    const grounded = body.blocked.down || body.touching.down
+    const airborne = !grounded || this.isFlying
+
+    if (airborne) {
+      if (this.sprite.anims.isPlaying) this.sprite.anims.stop()
+      if (this.sprite.texture.key !== 'player-jump') {
+        this.sprite.setTexture('player-jump')
+      }
+    } else {
+      // ignoreIfPlaying=true：已经在跑就不从头重启（避免"双脚打颤"）
+      this.sprite.anims.play('player-run', true)
     }
   }
 

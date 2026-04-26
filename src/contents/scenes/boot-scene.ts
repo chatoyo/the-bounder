@@ -1,8 +1,21 @@
 import * as Phaser from 'phaser'
 import { ASSET_KEYS, BGM_URLS, GAME_CONFIG, SCENE_KEYS } from '../constants'
 import { WORLD_STRIP_DEMO_DEF } from '../data/levels/world-strip-demo'
-import type { WorldStripImageDef } from '../types'
+import { WORLD_STRIP_BOSS_DEF } from '../data/levels/world-strip-boss'
+import type { WorldStripImageDef, WorldStripLoopDef } from '../types'
 import { useGame } from '@/runtime'
+
+/**
+ * 所有需要 preload 图片素材的 world-strip 关卡定义集合。
+ * 加新的 world-strip 关卡时：① 在 `src/contents/data/levels/` 加文件；
+ * ② 在 `WORLD_STRIP_LEVELS` 收录；③ 在这个数组里追加 def，BootScene 自动
+ * 迭代 load.image；④ 按需在 `generateWorldStripTextures` 的 palettes 里
+ * 补占位色（有 url 的图片不会走占位通道，所以其实可以不补）。
+ */
+const ALL_WORLD_STRIP_DEFS: readonly WorldStripLoopDef[] = [
+  WORLD_STRIP_DEMO_DEF,
+  WORLD_STRIP_BOSS_DEF,
+]
 
 /**
  * 用 Graphics 画一个 7-段数字（占位图里用来区分是第几张 strip 图片）。
@@ -93,11 +106,28 @@ export class BootScene extends Phaser.Scene {
     // ---- 音频：真实文件走 Phaser loader（占位纹理仍在 create() 里 generateTexture） ----
     this.load.audio(ASSET_KEYS.AUDIO.BGM_LEVEL_01, BGM_URLS.LEVEL_01)
 
-    // ---- World-strip 真实素材：凡是声明了 url 的图片都在这里加载 ----
+    // ---- World-strip 真实素材：迭代所有 strip 关卡（demo + boss），凡是声明了 url 的都 preload ----
     // 未声明 url 的仍由 create() 里的 generateWorldStripTextures 生成占位纹理。
-    for (const img of WORLD_STRIP_DEMO_DEF.images) {
-      if (img.url) this.load.image(img.textureKey, img.url)
+    // 重复 textureKey 的图片（例如 demo 里 1.png 被 world-strip-1 / world-strip-4 两次引用）
+    // 由第一次 load 决定；set 去重避免 Phaser 收到同 key 重复 load 报 warn。
+    const loadedStripKeys = new Set<string>()
+    for (const def of ALL_WORLD_STRIP_DEFS) {
+      for (const img of def.images) {
+        if (!img.url) continue
+        if (loadedStripKeys.has(img.textureKey)) continue
+        this.load.image(img.textureKey, img.url)
+        loadedStripKeys.add(img.textureKey)
+      }
     }
+
+    // ---- 玩家 sprite：真实素材（跑步 5 帧 + 静态跳跃）----
+    // 没有 idle 状态 —— 玩家始终在跑；跳跃用单帧静态图。
+    // Key 约定：player-run-1..5 对应 public/sprites/player/1.png..5.png；
+    // player-jump 对应 jump.png。动画在 create() 里注册为 'player-run'。
+    for (let i = 1; i <= 5; i++) {
+      this.load.image(`player-run-${i}`, `/sprites/player/${i}.png`)
+    }
+    this.load.image('player-jump', '/sprites/player/jump.png')
   }
 
   create(): void {
@@ -109,7 +139,38 @@ export class BootScene extends Phaser.Scene {
     this.generateBossTextures()
     this.generateEnemyTextures()
     this.generateWorldStripTextures()
+    this.registerPlayerAnimations()
     game.switchToScene(SCENE_KEYS.GAMEPLAY)
+  }
+
+  // =========================================================================
+  // Player animations —— 真素材一次性注册到全局 AnimationManager
+  // =========================================================================
+  //
+  // Phaser 的 anims 注册到 scene.anims 后会被 AnimationManager 全局持有，
+  // 后续所有 scene 都能直接 anims.play('player-run')。所以在 BootScene 注册一次
+  // 即可，不用每次进 GameplayScene 重新 create。
+  //
+  // 手感参数：
+  //   - frameRate ：每秒多少帧（12 = 典型 2D 跑步节奏；觉得跑太"快"就往下调到 10，
+  //                 跑太"慢"就往上调到 14）
+  //   - repeat -1：无限循环
+  //
+  // 跳跃没有动画 —— Player 空中时 setTexture('player-jump') 贴静态图。
+  private registerPlayerAnimations(): void {
+    if (this.anims.exists('player-run')) return // 幂等：scene.restart 不会重复注册
+    this.anims.create({
+      key: 'player-run',
+      frames: [
+        { key: 'player-run-1' },
+        { key: 'player-run-2' },
+        { key: 'player-run-3' },
+        { key: 'player-run-4' },
+        { key: 'player-run-5' },
+      ],
+      frameRate: 8,
+      repeat: -1,
+    })
   }
 
   // =========================================================================
@@ -117,14 +178,9 @@ export class BootScene extends Phaser.Scene {
   // =========================================================================
 
   private generateCoreTextures(): void {
-    // 玩家：32×48 亮蓝色方块 + 白眉毛显示朝向
-    const p = this.make.graphics({ x: 0, y: 0 })
-    p.fillStyle(0x4488ff, 1)
-    p.fillRect(0, 0, 32, 48)
-    p.fillStyle(0xffffff, 1)
-    p.fillRect(20, 10, 6, 4)
-    p.generateTexture('player', 32, 48)
-    p.destroy()
+    // 玩家纹理由 preload() 中的 this.load.image('player-run-1' / ... / 'player-jump')
+    // 直接提供真实 sprite —— 不再生成占位方块。
+    // 跑步动画在 registerPlayerAnimations() 里注册为 'player-run'。
 
     // 通用平台兜底（没 biome 时用）
     const pf = this.make.graphics({ x: 0, y: 0 })
@@ -513,12 +569,15 @@ export class BootScene extends Phaser.Scene {
       },
     ] as const
 
-    WORLD_STRIP_DEMO_DEF.images.forEach((imgDef, idx) => {
-      // 有真实素材的图片已在 preload 里加载好；create 阶段这里的纹理已存在，跳过。
-      if (this.textures.exists(imgDef.textureKey)) return
-      const palette = palettes[idx % palettes.length]
-      this.generateWorldStripImage(imgDef, WORLD_STRIP_DEMO_DEF.height, palette)
-    })
+    // 兼容所有 strip 关卡：对每张没有真实素材的图都生成占位纹理。
+    // 占位纹理的 palette 按"本 strip 内第几张图"循环取色，方便肉眼区分相邻图片。
+    for (const def of ALL_WORLD_STRIP_DEFS) {
+      def.images.forEach((imgDef, idx) => {
+        if (this.textures.exists(imgDef.textureKey)) return
+        const palette = palettes[idx % palettes.length]
+        this.generateWorldStripImage(imgDef, def.height, palette)
+      })
+    }
   }
 
   private generateWorldStripImage(

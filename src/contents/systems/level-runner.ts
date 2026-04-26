@@ -339,6 +339,20 @@ export class LevelRunner {
     return null
   }
 
+  /**
+   * 清空 boss-trigger 的"已触发"标记。
+   *
+   * 主要用途：BossPhase 被中断（例如玩家在 boss 战中死亡）时，`BossPhase.exit` 调
+   * 这个方法让玩家 respawn 后再次走到 trigger 能重新触发 boss，而不会"boss 消失、
+   * trigger 却残留已触发状态 → 玩家穿过去后无事发生"。
+   *
+   * 注意：只清除**触发**记录，不影响其它场内状态（boss 子弹池、BossEntity 实例都已经
+   * 被 BossPhase.exit 自己销毁了）。
+   */
+  clearFiredBossTriggers(): void {
+    this.firedBossTriggers.clear()
+  }
+
   /** 查 level-exit；scene 侧在 overlap 里调；返回 meta 后可 emit LEVEL_COMPLETED */
   findLevelExitAt(playerX: number, playerY: number, radius = 40): LevelExitSegmentDef | null {
     for (const e of this.levelExits.values()) {

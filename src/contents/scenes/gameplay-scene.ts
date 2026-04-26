@@ -53,6 +53,7 @@ import {
   LEVEL_WORLD_STRIP_DEMO,
   WORLD_STRIP_LEVELS,
 } from '../data/levels/world-strip-demo'
+import { LEVEL_WORLD_STRIP_BOSS } from '../data/levels/world-strip-boss'
 import { SKILL_REGISTRY } from '../data/skills/skill-registry'
 import { DIALOGUE_REGISTRY } from '../data/dialogues'
 import { BOSS_REGISTRY } from '../data/bosses'
@@ -93,6 +94,8 @@ const LEVEL_REGISTRY: Readonly<Record<string, LevelDef>> = {
   [LEVEL_01.id]: LEVEL_01,
   [LEVEL_02.id]: LEVEL_02,
   [LEVEL_WORLD_STRIP_DEMO.id]: LEVEL_WORLD_STRIP_DEMO,
+  // world-strip-demo 的 level-exit 会 scene.restart 到这一关；单图 boss 场景 + 终极结算。
+  [LEVEL_WORLD_STRIP_BOSS.id]: LEVEL_WORLD_STRIP_BOSS,
 }
 
 /**
@@ -113,6 +116,8 @@ const LEVEL_BGM: Readonly<Record<string, string | undefined>> = {
   [LEVEL_01.id]: ASSET_KEYS.AUDIO.BGM_LEVEL_01,
   // level-02 暂无专属 BGM → 静音
   [LEVEL_WORLD_STRIP_DEMO.id]: ASSET_KEYS.AUDIO.BGM_LEVEL_01,
+  // Boss 场景暂时共用 level-01 BGM（Rust City）；有专属 boss BGM 时换 key 即可。
+  [LEVEL_WORLD_STRIP_BOSS.id]: ASSET_KEYS.AUDIO.BGM_LEVEL_01,
 }
 
 export class GameplayScene extends Phaser.Scene {
@@ -490,13 +495,12 @@ export class GameplayScene extends Phaser.Scene {
     this.screenBounds.update(time, delta)
 
     // 水平无限循环：让 LevelRunner 根据相机位置维护 platform / hazard /
-    // checkpoint 的前后生成（非 loop 关卡下 tickSpawner 是 no-op）。
-    if (this.levelRunner.isLooping()) {
-      const cam = this.cameras.main
-      this.levelRunner.tickSpawner(cam.scrollX, cam.width)
-      // World-strip 关卡：用同一组相机坐标同步推动底图 chunk 的 spawn/despawn
-      this.worldStrip?.tickSpawner(cam.scrollX, cam.width)
-    }
+    // checkpoint 的前后生成（非 loop 关卡下 tickSpawner 自己早 return）。
+    const cam = this.cameras.main
+    this.levelRunner.tickSpawner(cam.scrollX, cam.width)
+    // World-strip 关卡：无论 loop / 非 loop 都要 tick（非 loop 下系统自己只保留 chunk 0，
+    // 首帧把底图铺上、后续帧几乎是 no-op）。
+    this.worldStrip?.tickSpawner(cam.scrollX, cam.width)
 
     // NPC 离开检测：玩家离开 NPC 的 zone 后清 currentNpcInRange
     this.tickNpcProximity()
@@ -659,26 +663,20 @@ export class GameplayScene extends Phaser.Scene {
 
   private onBossPhaseCleared = (): void => {
     // BossPhase 已经等过 2s 才派发本事件（见 BossPhase.onBossDefeated 的 delayedCall）。
-    // 现在进入"结算"段：锁相机 + 暂停物理 + 打开 BossVictoryOverlay；2.5s 后触发
-    // LEVEL_COMPLETED 走 LevelTransitionOverlay → scene.restart 载入下一关。
+    // 现在进入"结算"段：锁相机 + 暂停物理 + 打开 BossVictoryOverlay。
     //
-    // nextLevelId 的解析优先级：
+    // nextLevelId 解析优先级：
     //   1) 触发本次 boss 的 BossTriggerSegmentDef.nextLevelId（BossPhase 存到 scene.data）
-    //   2) 段里任意 level-exit 的 nextLevelId（非 loop 关卡老逻辑兜底）
-    //   3) 都没有 → loop 关卡里 boss 只是中间事件，不做结算、恢复 auto-scroll
+    //   2) 段里任意 level-exit 的 nextLevelId（非 loop 关卡的兜底）
+    //   3) 都没有 → 终极 boss：结算面板常驻，不再调 completeLevel
+    //
+    // 2026-04-26 修订：以前 "loop 关卡 + 无 nextLevelId" 会跳过结算继续跑圈；现在把
+    // 结算和转场拆开 —— 结算恒定发生，转场仅当 nextLevelId 有效时才安排。这样
+    // world-strip-boss 这类 "终极 boss" 关卡打完能正常看到 BOSS_VICTORY 面板。
     const fromTrigger = this.data.get('bossPhaseNextLevelId') as string | null | undefined
     const fromExit = (this.levelRunner.getDef().segments as readonly { type: string }[])
       .find((s) => s.type === 'level-exit') as { nextLevelId?: string } | undefined
     const nextLevelId = fromTrigger ?? fromExit?.nextLevelId
-
-    if (!nextLevelId) {
-      // 老行为：loop 关卡 + 未指定 nextLevelId → 继续跑
-      if (this.levelRunner.isLooping()) {
-        const speed: number = this.levelDef.scroll?.speed ?? SCROLL_TUNING.DEFAULT_SPEED
-        this.cameraDirector.autoScrollRight(speed)
-      }
-      return
-    }
 
     // ---- 结算阶段 ----
     // 锁相机 + 暂停物理 + 打 inSettlement 标记，让整个世界冻结在"最后一帧"的画面上，
@@ -706,12 +704,13 @@ export class GameplayScene extends Phaser.Scene {
       nextLevelId,
     } satisfies BossVictoryPayload)
 
-    // 2500ms 后推进到 LEVEL_COMPLETED —— LevelTransitionOverlay 接手后还会再等
-    // 1600ms 完成 scene.restart。总时序：boss 死 → 2s 缓冲 → 2.5s 结算面板 →
-    // 1.6s 过渡面板 → 新关卡就绪。
-    this.time.delayedCall(2500, () => {
-      this.completeLevel(nextLevelId)
-    })
+    // 仅当指定了下一关时才调 completeLevel；否则 BossVictoryOverlay 常驻作为终章。
+    // 有 nextLevelId 时总时序：boss 死 → 2s 缓冲 → 2.5s 结算面板 → 1.6s 过渡面板 → 新关卡就绪。
+    if (nextLevelId) {
+      this.time.delayedCall(2500, () => {
+        this.completeLevel(nextLevelId)
+      })
+    }
   }
 
   /**

@@ -188,6 +188,14 @@ export class BossPhase implements Phase {
     eventBus.off(EVENT_KEYS.BOSS_DEFEATED, this.onBossDefeated)
     for (const c of this.colliders) c.destroy()
     this.colliders.length = 0
+
+    // 若 phase 被中断（boss 还没死就切走 —— 绝大多数情况是玩家死亡 → RESPAWN）：
+    // 把 `firedBossTriggers` 清掉，保证 respawn 后玩家再次走到 trigger 能让 boss 重新登场。
+    // 如果 boss 已经死了（正常完结），不清 —— 避免 auto-scroll loop 关卡里 boss 反复刷。
+    if (this.boss?.isAlive()) {
+      this.ctx.levelRunner.clearFiredBossTriggers()
+    }
+
     this.boss?.destroy()
     this.boss = null
     this.enemyBullets?.destroy()
