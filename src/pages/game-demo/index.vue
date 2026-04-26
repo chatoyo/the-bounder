@@ -11,6 +11,9 @@
           - LevelTransitionOverlay：过关到下一关的"准备载入"面板（常规关卡过渡，z-40）
           - BossTransitionOverlay：仅当 nextLevelId==='world-strip-boss' 时接管，
             播 boss_transition.mp4 替代常规过渡面板（z-50）
+          - BossEndingOverlay：终极 boss 击破后的"好结局"视频（z-50）；
+            播完后 GameplayScene 才 emit BOSS_VICTORY，由 BossVictoryOverlay 接棒
+            展示常驻结算面板。与 BossTransitionOverlay 时序上绝不重叠。
         死亡 / 胜利 / 过关不会同时发生，z 排序按"更强的阻断态更靠前"即可。
       -->
       <GameHud />
@@ -19,6 +22,7 @@
       <BossVictoryOverlay />
       <LevelTransitionOverlay />
       <BossTransitionOverlay />
+      <BossEndingOverlay />
     </div>
   </div>
 </template>
@@ -33,6 +37,7 @@ import DeathOverlay from '@/components/death-overlay.vue'
 import BossVictoryOverlay from '@/components/boss-victory-overlay.vue'
 import LevelTransitionOverlay from '@/components/level-transition-overlay.vue'
 import BossTransitionOverlay from '@/components/boss-transition-overlay.vue'
+import BossEndingOverlay from '@/components/boss-ending-overlay.vue'
 
 const gameContainer = ref<HTMLDivElement>()
 const game = useGame()

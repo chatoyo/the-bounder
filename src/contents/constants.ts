@@ -70,6 +70,18 @@ export const EVENT_KEYS = {
    * LevelTransitionOverlay 过渡计时。
    */
   BOSS_TRANSITION_ENDED: 'transition:boss-ended',
+  /**
+   * 终极 boss 击破后的"好结局"视频开播信号。从 `GameplayScene.onBossPhaseCleared`
+   * 在终极 boss（无 nextLevelId）结算时发出；`BossEndingOverlay` 据此
+   * 打开全屏覆盖层播放 `VIDEO_URLS.GOOD_ENDING`。
+   */
+  BOSS_ENDING_START: 'boss:ending-start',
+  /**
+   * 终极 boss 好结局视频播放结束（或被跳过 / 出错 / 看门狗超时）。由
+   * `BossEndingOverlay` 发出；`GameplayScene.onBossPhaseCleared` 收到后
+   * 再 emit `BOSS_VICTORY` 打开常驻结算面板。
+   */
+  BOSS_ENDING_ENDED: 'boss:ending-ended',
 
   // ---- 阶段 / 技能 (Phaser → Vue) ----
   PHASE_CHANGED: 'phase:changed',
@@ -122,7 +134,7 @@ export const PARALLAX_FACTORS = {
 
 // ---- 玩家可调参数（"vibe"：跳得软不软、飞得灵不灵，都在这里改） ----
 export const PLAYER_TUNING = {
-  MAX_HP: 5,
+  MAX_HP: 10,
   INVULN_MS: 1000,
   /**
    * 玩家按 A/D（左/右）时的水平速度。必须 > SCROLL_TUNING.DEFAULT_SPEED，
@@ -361,6 +373,13 @@ export const VIDEO_URLS = {
    * 接到后 `scene.restart` 进入 boss 场景。
    */
   BOSS_TRANSITION: '/videos/boss_transition.mp4',
+  /**
+   * 终极 boss 击破后的"好结局"过场动画。由 `BossEndingOverlay` 播放；
+   * `GameplayScene.onBossPhaseCleared` 在终极 boss（无 nextLevelId）结算时
+   * 先发 `BOSS_ENDING_START` → 视频播完发 `BOSS_ENDING_ENDED` →
+   * 再 emit `BOSS_VICTORY` 打开常驻结算面板。
+   */
+  GOOD_ENDING: '/videos/good_ending.mp4',
 } as const
 
 /**

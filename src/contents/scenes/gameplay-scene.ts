@@ -200,6 +200,14 @@ export class GameplayScene extends Phaser.Scene {
    */
   private pendingBossTransitionListener: (() => void) | null = null
 
+  /**
+   * 终极 boss 好结局视频（`BossEndingOverlay` 播 `good_ending.mp4`）结束的
+   * 一次性回调；`onBossPhaseCleared` 在终极 boss（无 nextLevelId）结算时安装、
+   * 视频 ended / skip / error / 看门狗 时触发，然后才 emit `BOSS_VICTORY`
+   * 打开 `BossVictoryOverlay`。shutdown 时同步摘掉避免泄漏到下一 scene。
+   */
+  private pendingBossEndingListener: (() => void) | null = null
+
   constructor() {
     super({ key: SCENE_KEYS.GAMEPLAY })
   }
@@ -214,6 +222,7 @@ export class GameplayScene extends Phaser.Scene {
     // scene.restart 不会重新运行 constructor，class field initializer 不会生效；
     // 这里显式重置，避免上一场景的 "等待视频结束" listener 泄漏到新 scene。
     this.pendingBossTransitionListener = null
+    this.pendingBossEndingListener = null
   }
 
   // =========================================================================
@@ -833,14 +842,20 @@ export class GameplayScene extends Phaser.Scene {
     // 2026-04-26 修订：以前 "loop 关卡 + 无 nextLevelId" 会跳过结算继续跑圈；现在把
     // 结算和转场拆开 —— 结算恒定发生，转场仅当 nextLevelId 有效时才安排。这样
     // world-strip-boss 这类 "终极 boss" 关卡打完能正常看到 BOSS_VICTORY 面板。
+    //
+    // 2026-04-26(v2) 修订：终极 boss（无 nextLevelId）结算前先播 `good_ending.mp4`
+    // 过场动画 —— 锁相机 + 暂停物理的"冻结画面"保留在视频下面，视频结束后
+    // BossVictoryOverlay 再淡入常驻（= "return to the original scene, which should
+    // already have a 结算画面"）。普通 boss（有 nextLevelId）节奏不变。
     const fromTrigger = this.data.get('bossPhaseNextLevelId') as string | null | undefined
     const fromExit = (this.levelRunner.getDef().segments as readonly { type: string }[])
       .find((s) => s.type === 'level-exit') as { nextLevelId?: string } | undefined
     const nextLevelId = fromTrigger ?? fromExit?.nextLevelId
 
-    // ---- 结算阶段 ----
+    // ---- 结算阶段 freeze ----
     // 锁相机 + 暂停物理 + 打 inSettlement 标记，让整个世界冻结在"最后一帧"的画面上，
-    // Vue 覆盖层的特效 / 动画占据全部注意力。
+    // Vue 覆盖层（先是 BossEndingOverlay 的视频，再是 BossVictoryOverlay 的面板）
+    // 占据全部注意力。两个覆盖层都在这层 freeze 之上播放。
     this.inSettlement = true
     const snap = {
       x: this.cameras.main.scrollX + this.cameras.main.width / 2,
@@ -859,18 +874,49 @@ export class GameplayScene extends Phaser.Scene {
     const bossId = bossDef?.id ?? 'boss'
     const displayName = bossDef?.displayName ?? 'BOSS'
 
-    eventBus.emit(EVENT_KEYS.BOSS_VICTORY, {
-      bossId,
-      displayName,
-      nextLevelId,
-    } satisfies BossVictoryPayload)
+    // 结算面板 emission 抽成局部 helper —— 终极 boss 需要等视频结束再调，
+    // 普通 boss 立即调；复用同一段"发 BOSS_VICTORY + 按需 schedule completeLevel"。
+    const showVictoryPanel = (): void => {
+      eventBus.emit(EVENT_KEYS.BOSS_VICTORY, {
+        bossId,
+        displayName,
+        nextLevelId,
+      } satisfies BossVictoryPayload)
 
-    // 仅当指定了下一关时才调 completeLevel；否则 BossVictoryOverlay 常驻作为终章。
-    // 有 nextLevelId 时总时序：boss 死 → 2s 缓冲 → 2.5s 结算面板 → 1.6s 过渡面板 → 新关卡就绪。
-    if (nextLevelId) {
-      this.time.delayedCall(2500, () => {
-        this.completeLevel(nextLevelId)
-      })
+      // 仅当指定了下一关时才调 completeLevel；否则 BossVictoryOverlay 常驻作为终章。
+      // 有 nextLevelId 时总时序：boss 死 → 2s 缓冲 → 2.5s 结算面板 → 1.6s 过渡面板 → 新关卡就绪。
+      if (nextLevelId) {
+        this.time.delayedCall(2500, () => {
+          this.completeLevel(nextLevelId)
+        })
+      }
+    }
+
+    if (!nextLevelId) {
+      // ---- 终极 boss：good_ending.mp4 → 结算面板 ----
+      //
+      // 时序：BOSS_ENDING_START → BossEndingOverlay 播 good_ending.mp4 →
+      //   ended / skip / error / watchdog → BOSS_ENDING_ENDED →
+      //   showVictoryPanel() → BOSS_VICTORY → BossVictoryOverlay 常驻。
+      //
+      // BGM：没有下一关 = completeLevel 不会跑 = 关卡 BGM 不会被它清掉；所以
+      // 这里主动 stop 一次，让视频音轨占据声场（视频本身若静音也无所谓，
+      // 反正上一关 BGM 需要停）。
+      console.log('[GameplayScene.onBossPhaseCleared] terminal boss → play good_ending.mp4')
+      this.bgm?.stop()
+
+      const onEndingEnded = (): void => {
+        console.log('[GameplayScene] BOSS_ENDING_ENDED received → show BossVictoryOverlay')
+        eventBus.off(EVENT_KEYS.BOSS_ENDING_ENDED, onEndingEnded)
+        this.pendingBossEndingListener = null
+        showVictoryPanel()
+      }
+      this.pendingBossEndingListener = onEndingEnded
+      eventBus.on(EVENT_KEYS.BOSS_ENDING_ENDED, onEndingEnded)
+      eventBus.emit(EVENT_KEYS.BOSS_ENDING_START)
+    } else {
+      // ---- 普通 boss：直接开结算 → 2.5s 后 completeLevel ----
+      showVictoryPanel()
     }
   }
 
@@ -1031,6 +1077,12 @@ export class GameplayScene extends Phaser.Scene {
     if (this.pendingBossTransitionListener) {
       eventBus.off(EVENT_KEYS.BOSS_TRANSITION_ENDED, this.pendingBossTransitionListener)
       this.pendingBossTransitionListener = null
+    }
+    // 同理：若玩家在终极 boss 结局视频中途离开页面，onBossPhaseCleared 挂的
+    // "等结局视频结束"一次性监听器也要摘掉。
+    if (this.pendingBossEndingListener) {
+      eventBus.off(EVENT_KEYS.BOSS_ENDING_ENDED, this.pendingBossEndingListener)
+      this.pendingBossEndingListener = null
     }
 
     // 销毁顺序：从外到内。
