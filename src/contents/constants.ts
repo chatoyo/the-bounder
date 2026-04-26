@@ -134,7 +134,7 @@ export const PARALLAX_FACTORS = {
 
 // ---- 玩家可调参数（"vibe"：跳得软不软、飞得灵不灵，都在这里改） ----
 export const PLAYER_TUNING = {
-  MAX_HP: 10,
+  MAX_HP: 5,
   INVULN_MS: 1000,
   /**
    * 玩家按 A/D（左/右）时的水平速度。必须 > SCROLL_TUNING.DEFAULT_SPEED，
