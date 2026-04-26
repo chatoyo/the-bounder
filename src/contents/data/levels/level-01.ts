@@ -2,7 +2,7 @@
  * Level 01 —— "草原晨跑"。
  *
  * 玩法意图：
- *   - 滚动模式 auto-right：相机每秒向右 ~200px 推进（SCROLL_TUNING.DEFAULT_SPEED），
+ *   - 滚动模式 auto-right：相机每秒向右 ~300px 推进（SCROLL_TUNING.DEFAULT_SPEED），
  *     视觉上世界从右向左流过屏幕。玩家必须不断右侧/上方跳跃避障。
  *   - **水平无限循环（loop: true）**：3600px 的关卡块随相机推进无限重复；
  *     LevelRunner 把 platforms / hazards / checkpoints 滑动窗口式地前后生成。

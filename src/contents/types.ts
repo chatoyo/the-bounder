@@ -314,8 +314,13 @@ export interface BossDef {
   /** Boss 初始出现的世界 x / y（通常是 boss 房中央） */
   readonly spawnX: number
   readonly spawnY: number
-  /** 视觉变体（placeholder 时期决定颜色/形状） */
-  readonly sprite?: 'hulk' | 'wisp' | 'serpent'
+  /**
+   * 视觉变体。
+   * - `hulk` / `wisp` / `serpent`：BootScene.generateBossTextures 生成的占位方块（96×96 / 128×96）。
+   * - `colossus`：真素材（`public/sprites/boss/boss.png`）—— Lovecraftian 机械章鱼终章
+   *   boss；尺寸远大于占位方块，BossEntity 会按 per-variant 配置 setScale + 收紧 hitbox。
+   */
+  readonly sprite?: 'hulk' | 'wisp' | 'serpent' | 'colossus'
 }
 
 // ---------------------------------------------------------------------------

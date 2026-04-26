@@ -3,7 +3,7 @@
  *
  * 设定：
  *   - biome: space（深紫 + 电路高光地块；搭配夜空 + 飘云的视差）
- *   - auto-right 滚动速度略高（110px/s）
+ *   - auto-right 滚动速度略高（360px/s，比 DEFAULT_SPEED=300 再快 20%）
  *   - 玩家进入时已 equip 飞行（由 scene.init.unlockedSkills 携带）
  *   - 中段一位红甲 NPC 警告玩家 boss；过 NPC 后是 boss-trigger → BossPhase
  *   - boss 死后 level-exit 触发 → 循环回 level-01（`nextLevelId: 'level-01'`）
@@ -22,8 +22,8 @@ export const LEVEL_02: LevelDef = {
   biome: BIOME_IDS.SPACE,
   scroll: {
     mode: 'auto-right',
-    // 比 DEFAULT_SPEED(200) 再快一点，保留 level-02 "更凶险" 的设计意图
-    speed: 240,
+    // 比 DEFAULT_SPEED(300) 再快一点，保留 level-02 "更凶险" 的设计意图
+    speed: 360,
   },
   background: [
     // 夜空 —— 带星点

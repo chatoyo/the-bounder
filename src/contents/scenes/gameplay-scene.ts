@@ -23,6 +23,7 @@ import {
   AUDIO_TUNING,
   BOSS_TRANSITION_LEVEL_ID,
   CAPABILITY_IDS,
+  CODE_DANMAKU_TUNING,
   EVENT_KEYS,
   FLYING_ENEMY_TUNING,
   GAME_CONFIG,
@@ -65,6 +66,7 @@ import { JumpCapability } from '../entities/player/capabilities/jump-capability'
 import { ShootCapability } from '../entities/player/capabilities/shoot-capability'
 import { FlyCapability } from '../entities/player/capabilities/fly-capability'
 import { NpcEntity } from '../entities/npc/npc-entity'
+import { CodeDanmakuPool } from '../entities/enemies/code-danmaku-pool'
 import { FlyingEnemyPool } from '../entities/enemies/flying-enemy-pool'
 import { CameraDirector } from '../systems/camera-director'
 import { InputSystem } from '../systems/input-system'
@@ -106,6 +108,18 @@ const LEVEL_REGISTRY: Readonly<Record<string, LevelDef>> = {
 const DEFAULT_LEVEL: LevelDef = LEVEL_WORLD_STRIP_DEMO
 
 /**
+ * 启用"Matrix 代码弹幕雨"的关卡集合。设计上就是"Boss 战之前"的过渡关卡 ——
+ * 给玩家营造"越靠近 boss 越觉得世界在崩"的氛围，同时练一练在 auto-scroll 里
+ * 躲 / 击落飞来物的手感。
+ *
+ * 维护边界：
+ *   - BossPhase 进场 / 结算时会清场（不让代码雨盖在 boss UI 上）；
+ *   - 只在 running phase + 非 settlement 时 spawn。
+ *   - 新关卡想加就加一行；目前只 `world-strip-demo` 一关。
+ */
+const CODE_DANMAKU_LEVELS: ReadonlySet<string> = new Set([LEVEL_WORLD_STRIP_DEMO.id])
+
+/**
  * 关卡 id → Phaser audio key 的映射。`startBgmForLevel` 按当前关卡查表；
  * 未声明的关卡跑静音（不影响场景正确性，只是没音乐）。
  *
@@ -140,6 +154,13 @@ export class GameplayScene extends Phaser.Scene {
   private flyingEnemies!: FlyingEnemyPool
   /** 小飞兵 spawn 定时器（固定 interval；回调里按 phase 过滤） */
   private flyerSpawner!: Phaser.Time.TimerEvent
+  /**
+   * Matrix 代码弹幕池 —— 只在 `CODE_DANMAKU_LEVELS` 里的关卡创建；其它关卡为 null。
+   * BossPhase 进入时 despawnAll；shutdown 时 destroy。
+   */
+  private codeDanmaku: CodeDanmakuPool | null = null
+  /** 代码弹幕 spawn 定时器；同上，仅在 danmaku 关卡存在 */
+  private codeDanmakuSpawner: Phaser.Time.TimerEvent | null = null
   /** 关卡 BGM（Level 01 = "Rust City"）。循环播放；pause/resume/shutdown 里同步暂停。 */
   private bgm: Phaser.Sound.BaseSound | null = null
 
@@ -258,6 +279,22 @@ export class GameplayScene extends Phaser.Scene {
     for (const skillId of this.initData.unlockedSkills ?? []) {
       this.skillManager.unlock(skillId as SkillId)
       if (skillId === SKILL_IDS.FLIGHT) this.skillManager.equip(SKILL_IDS.FLIGHT)
+    }
+
+    // ---- Boss 场景专属：强制装备飞行 + 换上"悬浮平台"sprite ----
+    //
+    // world-strip-boss 是空中 boss 战：玩家应当一进来就能飞，不管前面关卡有没有捡
+    // 飞行 orb。同时视觉上换到 `player-floating-platform` 贴图（自带浮空平台），
+    // 把"现在是飞行战斗"这件事一眼传达给玩家。
+    //
+    // 执行顺序要求：必须在 `initData.unlockedSkills` 回放后触发，否则这里 equip 完
+    // 的 FlyCapability 会被后续 unlockedSkills 的 equip(FLIGHT) 二次 attach（equip
+    // 内部对已 equipped 的 id 会早退，但保险起见放在回放之后更直白）。
+    // 只针对 world-strip-boss 生效；其它关卡行为不变。
+    if (level.id === LEVEL_WORLD_STRIP_BOSS.id) {
+      this.skillManager.unlock(SKILL_IDS.FLIGHT)
+      this.skillManager.equip(SKILL_IDS.FLIGHT)
+      this.player.useStaticSprite('player-floating-platform')
     }
 
     // ---- 7. 相机 ----
@@ -416,6 +453,53 @@ export class GameplayScene extends Phaser.Scene {
       callbackScope: this,
     })
 
+    // ---- Matrix 代码弹幕 —— 仅"通往 Boss 战"的关卡 ----
+    //
+    // 设计意图：world-strip-demo 是 Boss 战前的 runner 关卡；加上绿色代码雨让
+    // 玩家"越跑越觉得世界在崩"。Boss 场景里玩家已经切到飞行 + 世界停，代码雨
+    // 会挡视线、还没好处 → 这一关结束就自然关掉（BossPhase.enter 里再手动
+    // despawnAll，防止 level-exit 场景切换的瞬间残留一两条字符）。
+    if (CODE_DANMAKU_LEVELS.has(level.id)) {
+      this.codeDanmaku = new CodeDanmakuPool(this, POOL_SIZES.CODE_DANMAKU)
+
+      // 接触玩家 → 扣血 + 弹幕回池
+      this.physics.add.overlap(
+        this.player.sprite,
+        this.codeDanmaku.group,
+        (_playerGO, danGO) => {
+          if (!this.player.alive) return
+          const pool = this.codeDanmaku
+          if (!pool) return
+          const t = danGO as Phaser.GameObjects.Text
+          if (!t.active) return
+          pool.kill(t)
+          this.player.damage(CODE_DANMAKU_TUNING.CONTACT_DAMAGE, 'enemy')
+        },
+      )
+
+      // 玩家子弹 vs 代码弹幕 → 双方回池 / 销毁
+      this.physics.add.overlap(
+        this.playerBullets.group,
+        this.codeDanmaku.group,
+        (bulletGO, danGO) => {
+          const pool = this.codeDanmaku
+          if (!pool) return
+          const b = bulletGO as Phaser.Physics.Arcade.Sprite
+          const t = danGO as Phaser.GameObjects.Text
+          if (!b.active || !t.active) return
+          this.playerBullets.kill(b)
+          pool.kill(t)
+        },
+      )
+
+      this.codeDanmakuSpawner = this.time.addEvent({
+        delay: CODE_DANMAKU_TUNING.SPAWN_INTERVAL_MS,
+        loop: true,
+        callback: this.spawnCodeDanmaku,
+        callbackScope: this,
+      })
+    }
+
     // ---- 12. DialogueRunner + Phases ----
     this.dialogueRunner = new DialogueRunner((cmd) => this.handleDialogueCommand(cmd))
 
@@ -498,6 +582,9 @@ export class GameplayScene extends Phaser.Scene {
     // 小飞兵：boss / running phase 都要 tick —— running 下正常刷，boss 下已经 despawnAll 过，
     // 这里 no-op 但要让 cull / sin 摆动流程对称。
     this.flyingEnemies.update(time, this.cameras.main.scrollX)
+    // 代码弹幕：同样每帧 tick（cull 离屏 + 字形闪烁）；boss 后清场了也只是全部
+    // 跳过活体检查，开销极低。
+    this.codeDanmaku?.update(time, this.cameras.main)
 
     this.cameraDirector.update(time, delta)
     this.parallax.update(time, delta)
@@ -541,6 +628,11 @@ export class GameplayScene extends Phaser.Scene {
         if (bossDef) {
           // 清掉所有在场小飞兵，避免 boss 登场时屏幕还飘着一片杂兵
           this.flyingEnemies.despawnAll()
+          // 同理清掉代码弹幕 —— Boss HUD 在上方居中，一堆绿字符盖在血条上既糊
+          // 又干扰读血量。虽然本关 `CODE_DANMAKU_LEVELS` 只有 `world-strip-demo`
+          // （没有 boss-trigger），但保险起见放在这儿，未来给其它关加 boss
+          // 时不必再漏一处。
+          this.codeDanmaku?.despawnAll()
           this.phaseController.transition(PHASE_IDS.BOSS, {
             bossDef,
             levelId: this.levelDef.id,
@@ -677,6 +769,58 @@ export class GameplayScene extends Phaser.Scene {
     this.flyingEnemies.spawn(x, y)
   }
 
+  /**
+   * Matrix 代码弹幕刷新回调 —— 每 tick 随机挑一种发射方式：
+   *   - `horizontal`：自屏幕右缘水平向左飞过（最常见）。
+   *   - `diag-tr-bl`：自右上角俯冲到左下角（"黑客帝国"经典斜角）。
+   *   - `vertical`：自屏幕上缘垂直下落（像代码雨）。
+   *
+   * 每 tick 发射 SPAWN_BURST 条；即使某条 spawn 返回 null（池满）也不阻塞其它条。
+   */
+  private spawnCodeDanmaku = (): void => {
+    if (this.inSettlement) return
+    if (!this.codeDanmaku) return
+    if (this.phaseController.getCurrentId() !== PHASE_IDS.RUNNING) return
+
+    const cam = this.cameras.main
+    const T = CODE_DANMAKU_TUNING
+
+    for (let i = 0; i < T.SPAWN_BURST; i++) {
+      const speed = T.SPEED_MIN + Math.random() * (T.SPEED_MAX - T.SPEED_MIN)
+      // 方向轮盘：水平 50%、右上→左下 35%、垂直下落 15%
+      const roll = Math.random()
+      let x: number
+      let y: number
+      let vx: number
+      let vy: number
+      if (roll < 0.5) {
+        // 水平：从右缘外 margin 位置向左飞
+        x = cam.scrollX + cam.width + T.SPAWN_MARGIN
+        y = cam.scrollY + T.SPAWN_Y_MIN + Math.random() * (T.SPAWN_Y_MAX - T.SPAWN_Y_MIN)
+        vx = -speed
+        vy = 0
+      } else if (roll < 0.85) {
+        // 右上 → 左下：从右缘 + 顶部一小段 Y 区间出发，斜着扎向左下
+        x = cam.scrollX + cam.width + T.SPAWN_MARGIN
+        // Y 只在上半屏出发，才能"斜着扎到"下半屏
+        const topBand = T.SPAWN_Y_MIN + Math.random() * Math.max(40, (T.SPAWN_Y_MAX - T.SPAWN_Y_MIN) * 0.4)
+        y = cam.scrollY + topBand
+        // 45° 左下
+        const c = Math.SQRT1_2 // cos(45)=sin(45)≈0.707
+        vx = -speed * c
+        vy = speed * c
+      } else {
+        // 垂直下落：从顶部出发（"代码雨"本味）
+        x = cam.scrollX + Math.random() * cam.width
+        y = cam.scrollY - T.SPAWN_MARGIN
+        vx = 0
+        vy = speed
+      }
+
+      this.codeDanmaku.spawn(x, y, vx, vy)
+    }
+  }
+
   private onBossPhaseCleared = (): void => {
     // BossPhase 已经等过 2s 才派发本事件（见 BossPhase.onBossDefeated 的 delayedCall）。
     // 现在进入"结算"段：锁相机 + 暂停物理 + 打开 BossVictoryOverlay。
@@ -707,6 +851,7 @@ export class GameplayScene extends Phaser.Scene {
     // spawner 本身不停（time.addEvent 的 paused 会被 physics.world.pause 连带影响），
     // 不过回调里的 inSettlement 检查已经兜底；这里再显式清场避免残影。
     this.flyingEnemies.despawnAll()
+    this.codeDanmaku?.despawnAll()
 
     // 找到 boss 的 displayName：当前 phase 刚从 BOSS 退出，boss def 我们没留引用。
     // 退而求其次：按 bossPhaseLevelId 所在关卡的 boss-trigger 反查 BossDef。
@@ -909,6 +1054,7 @@ export class GameplayScene extends Phaser.Scene {
       this.bgm = null
     })
     safeDestroy('flyerSpawner', () => this.flyerSpawner?.remove(false))
+    safeDestroy('codeDanmakuSpawner', () => this.codeDanmakuSpawner?.remove(false))
     safeDestroy('phaseController', () => this.phaseController?.destroy())
     safeDestroy('dialogueRunner', () => this.dialogueRunner?.destroy())
     safeDestroy('npcs', () => {
@@ -925,6 +1071,10 @@ export class GameplayScene extends Phaser.Scene {
     safeDestroy('cameraDirector', () => this.cameraDirector?.destroy())
     safeDestroy('inputSystem', () => this.inputSystem?.destroy())
     safeDestroy('flyingEnemies', () => this.flyingEnemies?.destroy())
+    safeDestroy('codeDanmaku', () => {
+      this.codeDanmaku?.destroy()
+      this.codeDanmaku = null
+    })
     safeDestroy('playerBullets', () => this.playerBullets?.destroy())
     safeDestroy('player', () => this.player?.destroy())
     safeDestroy('levelRunner', () => this.levelRunner?.destroy())

@@ -43,7 +43,7 @@ import { buildWorldStripLevel } from './world-strip-demo'
  *   - boss.png 原生 1568×672；WorldStripSystem 会 `setDisplaySize(1568, 672)` 铺在
  *     每个 chunk 上（loop=true → 同一张图按 chunkWidth=1568 反复平铺）。
  *   - 地面段厚度取 126（和 demo 里 world-strip-final 一致），玩家脚底 y = 672-126 = 546。
- *   - scroll.speed 略低于 demo（160 vs 180）—— boss 战要更从容的节奏。
+ *   - scroll.speed 略低于 demo（240 vs 270）—— boss 战要更从容的节奏。
  *   - `loop: true`：BossPhase 设计的前提是"世界继续流动、boss 跟随相机右缘"；单图
  *     非 loop 下相机会被世界右边界 clamp（1568-800=768px 行程，约 4.8s 后停止），
  *     导致 `BossEntity.update` 算出的 baseX 冻结，整个战斗变成静止画面。
@@ -52,10 +52,10 @@ import { buildWorldStripLevel } from './world-strip-demo'
  *     一个 checkpoint（loop 下 id = 'strip-img-0@0'），并把它设成 activeCheckpoint。
  *     `LevelRunner.getActiveSpawn` 优先读 activeCheckpoint → 就算 WorldStripLoopDef.spawn
  *     被覆盖也不会生效，所以这里干脆跟着走，spawn = (400, 522)。
- *   - boss-trigger 在 x=520：与 spawn 相差 120px。玩家 idle-drift (128 px/s) 约 0.9s 走到。
- *     相机推进更快 (160 px/s)，t=0.9s 时 scrollX ≈ 144；player.screen_x = 520 - 144 = 376 —
- *     还在视口中段，远离左缘 crush 区。boss-trigger 本身是单次触发（不按 chunk 复制），
- *     loop 下"走过 x=520 一次"的语义不变。
+ *   - boss-trigger 在 x=520：与 spawn 相差 120px。玩家 idle-drift (192 px/s = 240×0.8)
+ *     约 0.625s 走到。相机推进更快 (240 px/s)，t=0.625s 时 scrollX ≈ 150；
+ *     player.screen_x = 520 - 150 = 370 —— 还在视口中段，远离左缘 crush 区。
+ *     boss-trigger 本身是单次触发（不按 chunk 复制），loop 下"走过 x=520 一次"的语义不变。
  *   - boss-trigger.nextLevelId 留空 → 击破后 BossVictoryOverlay 常驻作为终章。
  */
 const WORLD_STRIP_BOSS: WorldStripLoopDef = {
@@ -64,7 +64,7 @@ const WORLD_STRIP_BOSS: WorldStripLoopDef = {
   biome: BIOME_IDS.SPACE,
   // 详见上方注释 & 文件顶部 JSDoc：BossPhase 要求世界不停，loop=true 让相机永远能向右推进。
   loop: true,
-  scroll: { mode: 'auto-right', speed: 160 },
+  scroll: { mode: 'auto-right', speed: 240 },
   images: [
     {
       textureKey: 'world-strip-boss',

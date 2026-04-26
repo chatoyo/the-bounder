@@ -58,6 +58,14 @@ export class Player {
   private damageFlashTween: Phaser.Tweens.Tween | null = null
 
   /**
+   * 若非空，`updateVisuals()` 不再切 run/jump 贴图，sprite 永远使用此 key
+   * 的静态贴图（由 `useStaticSprite()` 设置）。用于 boss 场景：玩家被强制
+   * 装备飞行 + 切到"悬浮平台"占位 sprite，视觉上就是"漂在平台上作战"，
+   * 跑步动画和跳跃贴图都应停用。
+   */
+  private staticSpriteKey: string | null = null
+
+  /**
    * 当前"世界滚动速度"的缓存（由 getCruiseSpeed() 惰性解析 scene.data['cameraDirector']）。
    * Move / Fly 等 capability 通过这个值决定"无输入时默认向前推的速度"，避免每个
    * capability 各自解析 director。
@@ -136,6 +144,8 @@ export class Player {
 
   /**
    * 视觉态切换：
+   *   - 静态 sprite 模式（staticSpriteKey !== null）→ 不做任何事，
+   *     贴图由 `useStaticSprite()` 一次性设置后保持不变（boss 场景用）
    *   - 地面 & 非飞行  → 循环播放 `player-run`
    *   - 空中 OR 飞行    → 停动画、setTexture('player-jump') 静态跳跃帧
    *
@@ -147,6 +157,8 @@ export class Player {
    */
   private updateVisuals(): void {
     if (!this._alive) return
+    // 静态模式：贴图由 useStaticSprite 写定，这里完全不插手
+    if (this.staticSpriteKey) return
 
     const body = this.sprite.body as Phaser.Physics.Arcade.Body | null
     if (!body) return
@@ -161,6 +173,25 @@ export class Player {
       }
     } else {
       // ignoreIfPlaying=true：已经在跑就不从头重启（避免"双脚打颤"）
+      this.sprite.anims.play('player-run', true)
+    }
+  }
+
+  /**
+   * 切到"静态 sprite"模式：把玩家贴图锁成一张固定图片，updateVisuals()
+   * 不再切 run/jump。传入 `null` 恢复默认的跑步动画 + 空中跳跃帧。
+   *
+   * 目前只给 world-strip-boss 关卡用：那里玩家被强制装备飞行能力 +
+   * 换上 'player-floating-platform' 贴图（自带浮空平台），跑步动画和
+   * 跳跃静态帧都不该出现。
+   */
+  useStaticSprite(key: string | null): void {
+    this.staticSpriteKey = key
+    if (key) {
+      if (this.sprite.anims.isPlaying) this.sprite.anims.stop()
+      this.sprite.setTexture(key)
+    } else {
+      // 恢复默认行为：立即重新播 run 动画；下一帧 updateVisuals 按地面/空中重算
       this.sprite.anims.play('player-run', true)
     }
   }

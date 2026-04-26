@@ -129,6 +129,18 @@ export class BootScene extends Phaser.Scene {
       this.load.image(`player-run-${i}`, `/sprites/player/${i}.png`)
     }
     this.load.image('player-jump', '/sprites/player/jump.png')
+
+    // ---- 玩家 boss-场景专属 sprite：站在浮空平台上 ----
+    // Boss 关卡里玩家被强制装备飞行能力，视觉上应当"漂在平台上向前飞"。
+    // 该贴图只在 world-strip-boss 关卡通过 Player.useStaticSprite 切入，
+    // 其它场景不使用；走 `load.image` 让 Phaser 预缓存。
+    this.load.image('player-floating-platform', '/pics/floating-platform.png')
+
+    // ---- Boss 真素材：`colossus` 变体（终章 Lovecraftian 机械章鱼）----
+    // 只要文件存在，就把它注册成 'boss-colossus'；create() 里的
+    // generateBossTextures 会检查 textures.exists('boss-colossus') 跳过占位生成，
+    // 文件缺失时 create() 会退回到一个深红色椭圆占位图保证关卡可跑。
+    this.load.image('boss-colossus', '/sprites/boss/boss.png')
   }
 
   create(): void {
@@ -521,6 +533,30 @@ export class BootScene extends Phaser.Scene {
       g.fillStyle(0xffff00, 1)
       g.fillRect(110, 40, 6, 6)
       g.generateTexture('boss-serpent', 128, 96)
+      g.destroy()
+    }
+    // colossus: 真素材兜底（只有 preload 里 `load.image('boss-colossus', ...)` 失败时才会走这条路）
+    // 真素材加载成功后 textures.exists('boss-colossus') === true → 直接跳过，不覆盖真图。
+    // 占位图尺寸 580×420 与期待的真素材相近，所以 BossEntity 的 scale + hitbox 配置
+    // 在占位 / 真图间切换不会产生剧烈视觉跳变。
+    if (!this.textures.exists('boss-colossus')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const W = 580
+      const H = 420
+      // 外围暗红光晕
+      g.fillStyle(0x3a0808, 0.4)
+      g.fillEllipse(W / 2, H / 2, W * 0.95, H * 0.75)
+      // 主体暗红椭圆
+      g.fillStyle(0x5a1010, 1)
+      g.fillEllipse(W / 2, H / 2, W * 0.7, H * 0.55)
+      // 中心机械核 + 红光
+      g.fillStyle(0x222222, 1)
+      g.fillRect(W / 2 - 70, H / 2 - 90, 140, 180)
+      g.fillStyle(0xcc1020, 1)
+      g.fillRect(W / 2 - 18, H / 2 - 70, 36, 140)
+      g.fillStyle(0xff4040, 1)
+      g.fillRect(W / 2 - 6, H / 2 - 50, 12, 100)
+      g.generateTexture('boss-colossus', W, H)
       g.destroy()
     }
   }

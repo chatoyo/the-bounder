@@ -27,7 +27,7 @@ import * as Phaser from 'phaser'
 import { EVENT_KEYS, PHASE_IDS, POOL_SIZES } from '@/contents/constants'
 import type { BossDef, PhaseId } from '@/contents/types'
 import { useEventBus } from '@/runtime'
-import { BulletPool } from '@/contents/entities/projectile/bullet-pool'
+import { CodeDanmakuPool } from '@/contents/entities/enemies/code-danmaku-pool'
 import { BossEntity } from '@/contents/entities/boss/boss-entity'
 import type { Phase, PhaseContext } from '../phase-controller'
 
@@ -52,7 +52,12 @@ export class BossPhase implements Phase {
 
   private ctx: PhaseContext
   private boss: BossEntity | null = null
-  private enemyBullets: BulletPool | null = null
+  /**
+   * 敌方子弹池。Boss 战的"紫色圆点"被换成 Matrix 风格的绿色代码字符；
+   * 弹道（散射 / 瞄准射 / 环爆）完全由 BossEntity 不变地驱动，只是视觉
+   * 呈现改成 `CodeDanmakuPool`。
+   */
+  private enemyBullets: CodeDanmakuPool | null = null
 
   private colliders: Phaser.Physics.Arcade.Collider[] = []
 
@@ -72,11 +77,15 @@ export class BossPhase implements Phase {
     // 相机：**故意不锁**。auto-scroll 继续推进，boss 自己会每帧跟随相机保持在
     // 视口右侧；下面也不会调用 director.lock()（这是 2026-04-26 之后的设计修订）。
 
-    // 敌方子弹池（寿命短一点，避免满屏紫点）
-    this.enemyBullets = new BulletPool(scene, 'enemy-bullet', POOL_SIZES.ENEMY_BULLETS, 2000)
+    // 敌方子弹池：Matrix 风格绿色代码字符（替换原来的紫色 sprite BulletPool）。
+    // BossEntity 只调 `.fire(x, y, vx, vy)`；CodeDanmakuPool 的 fire 和 BulletPool.fire
+    // 同签名，所以弹道、命中、overlap 全部保持不变。
+    this.enemyBullets = new CodeDanmakuPool(scene, POOL_SIZES.ENEMY_BULLETS)
 
-    // 实例化 Boss
-    this.boss = new BossEntity(scene, d.bossDef, this.enemyBullets)
+    // 实例化 Boss —— 把玩家 sprite 引用传进去，Boss 的瞄准射（phase 2+）
+    // 要据此算方向。BossEntity 只读 sprite.x/y，不持有 Player 类，避免
+    // 跨层循环依赖。
+    this.boss = new BossEntity(scene, d.bossDef, this.enemyBullets, this.ctx.player.sprite)
 
     // 玩家子弹 vs boss
     //
@@ -156,14 +165,17 @@ export class BossPhase implements Phase {
       ) as Phaser.Physics.Arcade.Collider,
     )
 
-    // 玩家 vs 敌方子弹
+    // 玩家 vs 敌方子弹（Matrix 代码弹幕）
+    // enemyBullets.group 里装的是 `Phaser.GameObjects.Text`（不是 Sprite），所以
+    // 这里不 narrow 到 Sprite —— `CodeDanmakuPool.kill` 接 `GameObject`，命中后
+    // 走它的统一回池流程，和老 BulletPool 调用姿势一致。
     this.colliders.push(
       scene.physics.add.overlap(
         this.ctx.player.sprite,
         this.enemyBullets.group,
         (_p, bulletGO) => {
           if (!this.ctx.player.alive) return
-          const b = bulletGO as Phaser.Physics.Arcade.Sprite
+          const b = bulletGO as Phaser.GameObjects.GameObject
           if (!b.active) return
           this.enemyBullets?.kill(b)
           this.ctx.player.damage(1, 'enemy')

@@ -78,7 +78,7 @@ const WORLD_STRIP_DEMO: WorldStripLoopDef = {
   biome: BIOME_IDS.GRASS,
   // 非循环：跑完 7 张图就让相机 clamp，level-exit 接管去 boss 场景。
   loop: false,
-  scroll: { mode: 'auto-right', speed: 180 },
+  scroll: { mode: 'auto-right', speed: 270 },
   images: [
     // 1.png：1569×672 原生；三段阶梯下降 209 → 190 → 165
     {

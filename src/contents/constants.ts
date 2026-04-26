@@ -95,9 +95,11 @@ export const GAME_CONFIG = {
 export const SCROLL_TUNING = {
   /**
    * 关卡默认滚动速度（像素/秒）；单关可以在 LevelDef.scroll.speed 覆盖。
-   * 200 的节奏：20 秒过一屏，玩家 MOVE_SPEED=260 仍能挣扎向前。
+   * 300 的节奏：玩家 MOVE_SPEED=390 仍能挣扎向前（相差 90 px/s）。
+   * 若改这里，记得把各关 scroll.speed 覆盖值和 PLAYER_TUNING.MOVE_SPEED
+   * 一起按比例调，否则玩家会被自动滚动压死。
    */
-  DEFAULT_SPEED: 200,
+  DEFAULT_SPEED: 300,
   /** 玩家离左边屏幕边缘多少像素内会"贴墙"被压 */
   LEFT_BOUND_PADDING: 8,
   /** 玩家离右边屏幕边缘多少像素内会被挡住 */
@@ -120,9 +122,14 @@ export const PARALLAX_FACTORS = {
 
 // ---- 玩家可调参数（"vibe"：跳得软不软、飞得灵不灵，都在这里改） ----
 export const PLAYER_TUNING = {
-  MAX_HP: 3,
+  MAX_HP: 5,
   INVULN_MS: 1000,
-  MOVE_SPEED: 260,
+  /**
+   * 玩家按 A/D（左/右）时的水平速度。必须 > SCROLL_TUNING.DEFAULT_SPEED，
+   * 否则 auto-right 关卡里按住右键也跑不赢相机，会被挤死。
+   * 当前：390 > DEFAULT_SPEED(300)，盈余 ≈ 90 px/s 供玩家"挣扎向前"。
+   */
+  MOVE_SPEED: 390,
   /**
    * 无输入时玩家水平默认前进速度（相对当前世界滚动速度的倍率）。
    * < 1 → 玩家默认比世界慢一点，相机会缓缓把他往左推；按 D/→ 才能真正在屏幕上向右推进。
@@ -178,6 +185,12 @@ export const POOL_SIZES = {
   ENEMY_BULLETS: 48,
   /** 同时存活的"小飞兵"上限；超过后新 spawn 会返 null */
   FLYING_ENEMIES: 12,
+  /**
+   * 同时存活的"Matrix 代码弹幕"上限。不走常规 sprite pool，而是一组 `Phaser.GameObjects.Text`
+   * 对象；此数字决定内存里缓存多少条活体 Text（用完回收再用）。屏幕上同时看到的字符
+   * 数一般不超过这个值的一半，因为大多数已飞出视口会被 cull。
+   */
+  CODE_DANMAKU: 40,
 } as const
 
 // ---- 小飞兵 / Flying enemy 调参 ----
@@ -205,6 +218,42 @@ export const FLYING_ENEMY_TUNING = {
   CULL_OFF_LEFT: 80,
   /** 接触玩家伤害 */
   CONTACT_DAMAGE: 1,
+} as const
+
+// ---- Matrix 代码弹幕调参 ----
+// "Boss 战之前"的氛围敌人：沿着世界自右向左 / 自右上至左下 / 自上而下飞过，
+// 每个都是一个绿色等宽字符（片假名 + ASCII 符号），像《黑客帝国》里的代码雨
+// 飘过屏幕。接触玩家造成 1 点伤害并被回收；玩家子弹也能把它们打掉。
+// 只在 `world-strip-demo` 这类"通往 boss 战的关卡"生效，boss phase 进入时清场。
+export const CODE_DANMAKU_TUNING = {
+  /** 同时存活上限（= 池尺寸，与 POOL_SIZES.CODE_DANMAKU 同步） */
+  POOL_SIZE: 40,
+  /** 两次 spawn 之间的间隔（ms）；越小越密集；600 = 每秒约 1.67 条 */
+  SPAWN_INTERVAL_MS: 800,
+  /** 单次 spawn 发射的字符数（小束/丛刷） */
+  SPAWN_BURST: 2,
+  /** 弹幕"飞行速度"基准（像素/秒，世界空间）；方向另外算 */
+  SPEED_MIN: 120,
+  SPEED_MAX: 320,
+  /** spawn 距相机可视区边缘的外推（像素），保证入场时玩家看不见"凭空出现" */
+  SPAWN_MARGIN: 40,
+  /** 弹幕的垂直 spawn Y 区间（相机本地坐标，随后加上 camera.scrollY） */
+  SPAWN_Y_MIN: 40,
+  SPAWN_Y_MAX: 520,
+  /** 字符最大存活时间；即便一直没离开视口也会过期回收 */
+  LIFETIME_MS: 4500,
+  /** 离开相机视窗多远像素就回收（防止一直挂着占池） */
+  CULL_OFF_MARGIN: 120,
+  /** 接触玩家伤害 */
+  CONTACT_DAMAGE: 1,
+  /** 渲染颜色（Matrix 荧光绿） */
+  COLOR: '#39ff7a',
+  /** 偶发"亮白"字符的概率（每次 spawn 掷骰），增加节奏感 */
+  HIGHLIGHT_CHANCE: 0.15,
+  /** 高亮字符颜色 */
+  HIGHLIGHT_COLOR: '#d8ffe6',
+  /** 字号（px），用 monospace 字体 */
+  FONT_PX: 20,
 } as const
 
 // ---- Phase 阶段 Id（单例 string 字面量用于 FSM / EventBus 载荷） ----
