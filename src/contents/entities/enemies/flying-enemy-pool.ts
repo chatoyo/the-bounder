@@ -134,7 +134,26 @@ export class FlyingEnemyPool {
   }
 
   destroy(): void {
-    this.group.clear(true, true)
-    this.group.destroy(true)
+    // Phaser 4 在 scene shutdown 时，其内部系统的 shutdown 监听器先跑、我们的
+    // handleShutdown 后跑 —— 等到这里时 group 的 children Set 可能已经被 Phaser
+    // 置空，直接 `group.clear(true, true)` 会抛
+    // `undefined is not an object (evaluating 'children.forEach')`。这条异常会
+    // 顺着 handleShutdown 往上抛，中断整条 shutdown → 新 scene.create 不会被触发
+    // （=> "boss 场景不加载"）。所以这里只做最保守的 group 销毁，并把 Phaser 的
+    // 不确定性吃掉。
+    if (!this.group) return
+    try {
+      const g = this.group as unknown as { children?: { size?: number } }
+      // children 还在（Phaser 还没提前拆）→ 走常规 clear+destroy 流水线。
+      if (g.children && typeof g.children.size === 'number') {
+        this.group.clear(true, true)
+        this.group.destroy(true)
+      } else {
+        // Phaser 已经把 children 置空；再调 clear 会崩。destroy(true) 内部同样会
+        // 走 clear 分支，也不安全。此时我们已经没必要手动清理了 —— Phaser 接管。
+      }
+    } catch (err) {
+      console.warn('[FlyingEnemyPool] destroy 忽略 Phaser 内部 teardown 异常:', err)
+    }
   }
 }

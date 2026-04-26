@@ -105,6 +105,7 @@ export class BootScene extends Phaser.Scene {
 
     // ---- 音频：真实文件走 Phaser loader（占位纹理仍在 create() 里 generateTexture） ----
     this.load.audio(ASSET_KEYS.AUDIO.BGM_LEVEL_01, BGM_URLS.LEVEL_01)
+    this.load.audio(ASSET_KEYS.AUDIO.BGM_BOSS, BGM_URLS.BOSS)
 
     // ---- World-strip 真实素材：迭代所有 strip 关卡（demo + boss），凡是声明了 url 的都 preload ----
     // 未声明 url 的仍由 create() 里的 generateWorldStripTextures 生成占位纹理。

@@ -274,6 +274,8 @@ export const ASSET_KEYS = {
   AUDIO: {
     /** Level 01 BGM —— "Rust City"，GameplayScene 里循环播放 */
     BGM_LEVEL_01: 'bgm-level-01',
+    /** Boss 场景 BGM —— ok6.mp3，world-strip-boss 关卡专用 */
+    BGM_BOSS: 'bgm-boss',
   },
 } as const
 
@@ -284,6 +286,8 @@ export const BGM_URLS = {
   MENU: '/bgms/menu.mp3',
   /** Level 01 BGM；BootScene.preload 里交给 Phaser loader */
   LEVEL_01: '/bgms/1-rust-city.mp3',
+  /** Boss 场景 BGM；BootScene.preload 里交给 Phaser loader */
+  BOSS: '/bgms/ok6.mp3',
 } as const
 
 // ---- 音量 / 淡入淡出 调参 ----

@@ -117,8 +117,10 @@ const LEVEL_BGM: Readonly<Record<string, string | undefined>> = {
   [LEVEL_01.id]: ASSET_KEYS.AUDIO.BGM_LEVEL_01,
   // level-02 暂无专属 BGM → 静音
   [LEVEL_WORLD_STRIP_DEMO.id]: ASSET_KEYS.AUDIO.BGM_LEVEL_01,
-  // Boss 场景暂时共用 level-01 BGM（Rust City）；有专属 boss BGM 时换 key 即可。
-  [LEVEL_WORLD_STRIP_BOSS.id]: ASSET_KEYS.AUDIO.BGM_LEVEL_01,
+  // Boss 场景专属 BGM（ok6.mp3） —— scene.restart 进 boss 时 startBgmForLevel
+  // 会加载这个 key；GameplayScene.completeLevel 会先把上一关的 BGM 停掉，
+  // 让 BossTransitionOverlay 播放视频期间无背景音干扰。
+  [LEVEL_WORLD_STRIP_BOSS.id]: ASSET_KEYS.AUDIO.BGM_BOSS,
 }
 
 export class GameplayScene extends Phaser.Scene {
@@ -757,6 +759,14 @@ export class GameplayScene extends Phaser.Scene {
     this.cameraDirector.lock(this.player.sprite.x, this.player.sprite.y)
     this.cameras.main.flash(400, 255, 255, 120)
 
+    // 立刻停掉当前关卡 BGM —— 否则 BossTransitionOverlay 播放视频期间、或
+    // LevelTransitionOverlay 展示过渡面板期间，上一关的 BGM 仍在循环。
+    // shutdown 里的 safeDestroy 会兜底 destroy，但 stop 必须在 scene.restart
+    // 之前发生，等到 shutdown 就已经晚了（视频整段都会伴着旧 BGM 在响）。
+    if (this.bgm) {
+      this.bgm.stop()
+    }
+
     if (nextLevelId && LEVEL_REGISTRY[nextLevelId]) {
       const carryOver: SkillId[] = []
       if (this.skillManager.isUnlocked(SKILL_IDS.FLIGHT)) carryOver.push(SKILL_IDS.FLIGHT)
@@ -878,25 +888,45 @@ export class GameplayScene extends Phaser.Scene {
       this.pendingBossTransitionListener = null
     }
 
-    // 销毁顺序：从外到内
-    this.bgm?.stop()
-    this.bgm?.destroy()
-    this.bgm = null
-    this.flyerSpawner?.remove(false)
-    this.phaseController?.destroy()
-    this.dialogueRunner?.destroy()
-    for (const npc of this.npcs.values()) npc.destroy()
-    this.npcs.clear()
-    this.skillManager?.destroy()
-    this.screenBounds?.destroy()
-    this.parallax?.destroy()
-    this.worldStrip?.destroy()
-    this.worldStrip = null
-    this.cameraDirector?.destroy()
-    this.inputSystem?.destroy()
-    this.flyingEnemies?.destroy()
-    this.playerBullets?.destroy()
-    this.player?.destroy()
-    this.levelRunner?.destroy()
+    // 销毁顺序：从外到内。
+    //
+    // **关键**：每一步都单独 try/catch。Phaser 4 在 scene shutdown 时内部系统
+    // 的拆解顺序不确定，某些 destroy() 在这里可能抛（例如早期版本的 FlyingEnemyPool
+    // 在 Phaser 把 group.children 置空后 clear 会失败）。一旦抛出，后续的 destroy
+    // 会被跳过、Phaser 自己的 shutdown 流程也会中断 —— 表现为"下一个 scene 永远不
+    // create"（= boss 场景不加载）。用 safeDestroy 包起来保证每一步都跑完。
+    const safeDestroy = (label: string, fn: () => void): void => {
+      try {
+        fn()
+      } catch (err) {
+        console.warn(`[GameplayScene.shutdown] ${label} destroy threw (non-fatal):`, err)
+      }
+    }
+
+    safeDestroy('bgm', () => {
+      this.bgm?.stop()
+      this.bgm?.destroy()
+      this.bgm = null
+    })
+    safeDestroy('flyerSpawner', () => this.flyerSpawner?.remove(false))
+    safeDestroy('phaseController', () => this.phaseController?.destroy())
+    safeDestroy('dialogueRunner', () => this.dialogueRunner?.destroy())
+    safeDestroy('npcs', () => {
+      for (const npc of this.npcs.values()) npc.destroy()
+      this.npcs.clear()
+    })
+    safeDestroy('skillManager', () => this.skillManager?.destroy())
+    safeDestroy('screenBounds', () => this.screenBounds?.destroy())
+    safeDestroy('parallax', () => this.parallax?.destroy())
+    safeDestroy('worldStrip', () => {
+      this.worldStrip?.destroy()
+      this.worldStrip = null
+    })
+    safeDestroy('cameraDirector', () => this.cameraDirector?.destroy())
+    safeDestroy('inputSystem', () => this.inputSystem?.destroy())
+    safeDestroy('flyingEnemies', () => this.flyingEnemies?.destroy())
+    safeDestroy('playerBullets', () => this.playerBullets?.destroy())
+    safeDestroy('player', () => this.player?.destroy())
+    safeDestroy('levelRunner', () => this.levelRunner?.destroy())
   }
 }
