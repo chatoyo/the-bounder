@@ -5,30 +5,197 @@
  *   - UI 无关、引擎无关的游戏世界数值/标识。
  *   - engine/ 不应 import 本文件（engine 若需要 fallback，走自己的 SHELL_DEFAULTS）。
  *   - runtime/ 不直接 import 具体事件 Key，业务层（scenes / pages）才用。
+ *
+ * 分组：
+ *   1. 标识类 (SCENE_KEYS / EVENT_KEYS / PHASE_IDS / ACTION_IDS / SKILL_IDS /
+ *      CAPABILITY_IDS / BIOME_IDS)
+ *   2. 游戏世界调参 (GAME_CONFIG / SCROLL_TUNING / PARALLAX_FACTORS)
+ *   3. 玩家手感调参 (PLAYER_TUNING / CAMERA_TUNING / POOL_SIZES)
  */
 
 // ---- 场景 Key ----
 export const SCENE_KEYS = {
   BOOT: 'BootScene',
-  GAME: 'GameScene',
+  GAMEPLAY: 'GameplayScene',
 } as const
 
 // ---- 事件 Key (Phaser <-> Vue 通信) ----
+// 命名约定：namespace:verb（小写 + 冒号 + 连字符）。
+// 分组顺序：lifecycle → player → level → combat → meta (skill/phase/hud)。
 export const EVENT_KEYS = {
-  SCORE_UPDATE: 'score:update',
+  // ---- 生命周期 (Vue → Phaser, 除 GAME_OVER 外) ----
   GAME_OVER: 'game:over',
   GAME_RESTART: 'game:restart',
   GAME_PAUSE: 'game:pause',
   GAME_RESUME: 'game:resume',
+
+  // ---- 玩家状态 (Phaser → Vue) ----
+  PLAYER_HP_CHANGED: 'player:hp-changed',
+  PLAYER_DAMAGED: 'player:damaged',
+  PLAYER_DIED: 'player:died',
+  PLAYER_RESPAWNED: 'player:respawned',
+
+  // ---- 关卡进度 (Phaser → Vue) ----
+  CHECKPOINT_REACHED: 'checkpoint:reached',
+  LEVEL_COMPLETED: 'level:completed',
+
+  // ---- 拾取 / 交互 (Phaser → Vue) ----
+  PICKUP_COLLECTED: 'pickup:collected',
+
+  // ---- 对话 (Phaser → Vue 推进 UI；Vue → Phaser 选择 choice) ----
+  DIALOGUE_START: 'dialogue:start',
+  DIALOGUE_NODE: 'dialogue:node',
+  DIALOGUE_CHOICE_SELECTED: 'dialogue:choice-selected',
+  DIALOGUE_ADVANCE: 'dialogue:advance',
+  DIALOGUE_END: 'dialogue:end',
+
+  // ---- 战斗 / Boss (Phaser → Vue) ----
+  BOSS_SPAWNED: 'boss:spawned',
+  BOSS_HP_CHANGED: 'boss:hp-changed',
+  BOSS_DEFEATED: 'boss:defeated',
+
+  // ---- 阶段 / 技能 (Phaser → Vue) ----
+  PHASE_CHANGED: 'phase:changed',
+  SKILL_UNLOCKED: 'skill:unlocked',
+  SKILL_EQUIPPED: 'skill:equipped',
+  SKILL_REVOKED: 'skill:revoked',
 } as const
 
-// ---- 游戏配置 ----
+// ---- 世界配置（与画幅 / 全局物理相关） ----
 export const GAME_CONFIG = {
   WIDTH: 800,
   HEIGHT: 600,
-  STAR_COUNT: 12,
-  STAR_RESPAWN_DELAY: 1500,
-  PLAYER_SPEED: 300,
-  PLAYER_JUMP: -600,
-  GRAVITY: 800,
+  GRAVITY: 1100,
+  /** 摔出世界下沿多少像素算死亡 */
+  FALL_DEATH_MARGIN: 100,
+  /** 玩家被自动滚动挤出左侧屏幕多少像素算死亡（压死机制） */
+  SCREEN_CRUSH_MARGIN: 16,
+} as const
+
+// ---- 自动滚动（"世界向左移动"的核心参数） ----
+// 实现方式：相机向右匀速滚动；视觉上等价于"世界匀速向左流过屏幕"。
+// 玩家 X 轴被夹在相机可视窗口内（由 ScreenBoundsSystem 维护）。
+export const SCROLL_TUNING = {
+  /** 关卡默认滚动速度（像素/秒）；单关可以在 LevelDef.scroll.speed 覆盖 */
+  DEFAULT_SPEED: 90,
+  /** 玩家离左边屏幕边缘多少像素内会"贴墙"被压 */
+  LEFT_BOUND_PADDING: 8,
+  /** 玩家离右边屏幕边缘多少像素内会被挡住 */
+  RIGHT_BOUND_PADDING: 8,
+} as const
+
+// ---- 视差系数 ----
+// 标准：midground = 1 (世界空间本身)；background 慢于相机；foreground 快于相机。
+// 细节再在 LevelDef.background[].scrollFactor 里按层覆盖。
+export const PARALLAX_FACTORS = {
+  /** 远景（最慢）：山脉 / 深空 */
+  SKY: 0.15,
+  /** 中远景：云层 / 云雾 */
+  FAR: 0.35,
+  /** 近景：灌木 / 前景草 */
+  NEAR: 1.35,
+  /** 超近景：飞过去的粒子 / 花瓣 */
+  FOREGROUND: 1.6,
+} as const
+
+// ---- 玩家可调参数（"vibe"：跳得软不软、飞得灵不灵，都在这里改） ----
+export const PLAYER_TUNING = {
+  MAX_HP: 3,
+  INVULN_MS: 1000,
+  MOVE_SPEED: 260,
+  JUMP_VELOCITY: -560,
+  /** 松开跳键时若仍在上升，纵速乘以该值 —— 实现"可变跳跃高度" */
+  JUMP_CUT_MULTIPLIER: 0.45,
+  /** 离开地面后还允许跳的缓冲帧（~60fps） */
+  COYOTE_FRAMES: 6,
+  /** 落地前提前按跳键的缓冲帧 */
+  JUMP_BUFFER_FRAMES: 6,
+  /** 最多可在"空中"按跳的次数；1 = 二段跳（1 次地面 + 1 次空中） */
+  MAX_AIR_JUMPS: 1,
+
+  BULLET_SPEED: 700,
+  BULLET_LIFETIME_MS: 1200,
+  FIRE_COOLDOWN_MS: 220,
+
+  // ---- 飞行能力（FlyCapability 用） ----
+  /** 飞行水平最高速 */
+  FLY_SPEED_X: 320,
+  /** 飞行垂直最高速 */
+  FLY_SPEED_Y: 300,
+  /** 飞行加速度（按键按下时从 0 到 max 的爬升） */
+  FLY_ACCEL: 2200,
+  /** 松开按键后的阻尼（越大越干脆） */
+  FLY_DAMP: 0.82,
+} as const
+
+// ---- 相机调参 ----
+export const CAMERA_TUNING = {
+  FOLLOW_LERP_X: 0.12,
+  FOLLOW_LERP_Y: 0.12,
+  DEAD_ZONE_WIDTH: 200,
+  DEAD_ZONE_HEIGHT: 140,
+} as const
+
+// ---- 对象池尺寸 ----
+export const POOL_SIZES = {
+  PLAYER_BULLETS: 32,
+  ENEMY_BULLETS: 48,
+} as const
+
+// ---- Phase 阶段 Id（单例 string 字面量用于 FSM / EventBus 载荷） ----
+export const PHASE_IDS = {
+  RUNNING: 'running',
+  RESPAWN: 'respawn',
+  DIALOGUE: 'dialogue',
+  BOSS: 'boss',
+  CUTSCENE: 'cutscene',
+  /** 关卡通关短动画 → 载入下一关 */
+  LEVEL_END: 'level-end',
+} as const
+
+// ---- Action Id（InputSystem 输出的语义动作） ----
+export const ACTION_IDS = {
+  MOVE_LEFT: 'move-left',
+  MOVE_RIGHT: 'move-right',
+  MOVE_UP: 'move-up',
+  MOVE_DOWN: 'move-down',
+  JUMP: 'jump',
+  SHOOT: 'shoot',
+  INTERACT: 'interact',
+  SKILL_2: 'skill-2',
+  SKILL_3: 'skill-3',
+  /** 对话推进 / 跳过动画 */
+  ADVANCE: 'advance',
+  /** 对话选项 1 / 2 */
+  CHOICE_1: 'choice-1',
+  CHOICE_2: 'choice-2',
+} as const
+
+// ---- Skill Id ----
+export const SKILL_IDS = {
+  SHOOT: 'shoot',
+  /** 飞行：拾取后解锁，装备时压制 move + jump，启用 4 方向飞行 */
+  FLIGHT: 'flight',
+} as const
+
+// ---- Capability Id（给 capability 做自我声明 / SkillManager 查表用） ----
+export const CAPABILITY_IDS = {
+  MOVE: 'move',
+  JUMP: 'jump',
+  SHOOT: 'shoot',
+  FLY: 'fly',
+} as const
+
+// ---- Biome Id（LevelRunner 据此选择贴图变体：草地/岩石/冰原/太空） ----
+export const BIOME_IDS = {
+  GRASS: 'grass',
+  STONE: 'stone',
+  ICE: 'ice',
+  SPACE: 'space',
+} as const
+
+// ---- Pickup 类型 Id（PickupSegmentDef.kind / PICKUP_COLLECTED payload） ----
+export const PICKUP_IDS = {
+  FLIGHT_ORB: 'flight-orb',
+  HP_CRYSTAL: 'hp-crystal',
 } as const
