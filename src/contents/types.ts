@@ -110,6 +110,11 @@ export interface PlatformSegmentDef {
   height: number
   /** 可选 biome 覆盖；不填继承 LevelDef.biome */
   biome?: BiomeId
+  /**
+   * 隐藏默认的 biome TileSprite 视觉，只保留不可见的碰撞体。
+   * 用于"美术已经把地面画在世界底图里"的关卡（见 WorldStripSystem）。
+   */
+  invisible?: boolean
 }
 
 export interface HazardSegmentDef {
@@ -430,4 +435,108 @@ export interface SkillEquippedPayload {
 
 export interface SkillRevokedPayload {
   id: SkillId
+}
+
+// ---------------------------------------------------------------------------
+// World-strip 循环（变宽图片拼接 + 每图独立地面轮廓）
+// ---------------------------------------------------------------------------
+//
+// 场景：美术提供一串长条底图（固定高度，变宽），每两张相邻图片之间有一段像素
+// 级的 overlap（后一张盖在前一张右边缘之上）。跑酷关卡按顺序放它们；最后一张
+// 放完后循环回第一张。每张图片在自己的本地 x 空间里声明若干"地面段"
+// （section：[startX, endX) + groundHeight），这些段被翻译成不可见的 AABB
+// 碰撞矩形给玩家踩。
+//
+// 翻译规则：
+//   - 图 i 在 chunk 空间里占据 [leftX_i, rightX_i) = [leftX_i, leftX_i + width_i)
+//   - 图 i 之后紧接的图 i+1 从 leftX_i + width_i - overlapNext_i 开始；图 i+1
+//     会盖在图 i 的右侧 overlapNext_i 像素上。
+//   - 因此图 i 的"所有权"范围只到 leftX_{i+1}；落在 [leftX_{i+1}, rightX_i) 的
+//     section 会被自动裁掉（视觉上被下一张图覆盖）。
+//   - 最后一张图的所有权范围到 chunkWidth（即回到图 0 前的最后一像素）。
+//
+// buildWorldStripLevel() 把上述 WorldStripLoopDef 编译成 LevelDef（loop=true,
+// chunkWidth=sum(width - overlapNext)）+ 一组 invisible platform segments。
+// WorldStripSystem 负责按 chunk 实例化实际的 Phaser.GameObjects.Image。
+
+/** 一段地面轮廓（在本地图片坐标系里，原点为图片左上角）。 */
+export interface WorldStripGroundSection {
+  /** 本图内的局部 x 起点（包含） */
+  readonly startX: number
+  /** 本图内的局部 x 终点（不含） */
+  readonly endX: number
+  /** 地面厚度（从图片底边向上，像素）。玩家脚底的 y = image.y + (height - groundHeight) */
+  readonly groundHeight: number
+}
+
+/** World-strip 中的一张图片。 */
+export interface WorldStripImageDef {
+  /** Phaser 贴图 key（BootScene 里生成或 load.image 加载） */
+  readonly textureKey: string
+  /**
+   * 可选：真实素材 URL（例如 `/pics/1.png`）。
+   *   - 有值：BootScene.preload 里 `this.load.image(textureKey, url)` 加载；
+   *     WorldStripSystem 会用 `setDisplaySize(width, strip.height)` 将贴图
+   *     缩放到声明的 width × height（处理原图分辨率 ≠ 显示尺寸的情况）。
+   *   - 无值：回退到 BootScene.generateWorldStripTextures 生成占位纹理。
+   */
+  readonly url?: string
+  /** 在关卡世界里的显示宽度（像素）。可以 < 或 > 贴图原生宽度 —— 会被缩放。 */
+  readonly width: number
+  /**
+   * 本图右边缘被下一张图盖住的像素数（显示空间）。下一张图从
+   * `thisImage.leftX + width - overlapNext` 开始。
+   * 最后一张图的 overlapNext 决定循环回到第一张图时的接缝。
+   */
+  readonly overlapNext: number
+  /**
+   * 地面段列表（在本图的显示坐标系内；即若贴图会被缩放，section.x / endX / groundHeight
+   * 用的是缩放后的像素数）。落在图 i+1 覆盖范围内的段会被自动裁剪或丢弃。
+   */
+  readonly sections: readonly WorldStripGroundSection[]
+}
+
+/** 一整圈 world-strip 循环。 */
+export interface WorldStripLoopDef {
+  /** 对应生成的 LevelDef.id */
+  readonly id: string
+  /** 所有图片共享的高度（像素） */
+  readonly height: number
+  /** 按显示顺序的图片列表。最后一张之后循环回第一张。 */
+  readonly images: readonly WorldStripImageDef[]
+  /** 可选：覆盖 LevelDef.scroll（默认 auto-right, speed=SCROLL_TUNING.DEFAULT_SPEED） */
+  readonly scroll?: LevelScrollDef
+  /** 可选：LevelDef.biome（隐藏平台时 biome 只影响"无关的" fallback，一般填 grass 即可） */
+  readonly biome?: BiomeId
+  /** 可选：玩家初始 spawn；不填由 builder 基于第一张图的第一个 section 自动推导 */
+  readonly spawn?: { readonly x: number; readonly y: number }
+  /**
+   * 可选：额外 segments（boss-trigger / pickup / npc / level-exit / 多余 checkpoint…）。
+   * 这些会原样附加到 LevelDef.segments 末尾，坐标用 chunk 空间（= 第 0 圈的世界 x）。
+   * 注意 boss-trigger 的 `firedBossTriggers` 去重是幂等的：loop 关卡里一局只触发一次，
+   * 之后的圈次不再生成 boss。
+   */
+  readonly extraSegments?: readonly SegmentDef[]
+}
+
+/** build 之后每张图在 chunk 空间的摆放信息。 */
+export interface WorldStripPlacement {
+  readonly imageIdx: number
+  readonly textureKey: string
+  readonly width: number
+  /** 图片左上角在 chunk 空间的 x */
+  readonly leftX: number
+  /** 图片右边缘（不含）在 chunk 空间的 x = leftX + width */
+  readonly rightX: number
+  /** 本图"实际生效"的 x 区间：[ownedStartX, ownedEndX)。地面段都会裁到这里。 */
+  readonly ownedStartX: number
+  readonly ownedEndX: number
+}
+
+/** buildWorldStripLevel() 的产物：LevelDef + 摆放元数据（后者给 WorldStripSystem 用）。 */
+export interface BuiltWorldStripLevel {
+  readonly level: LevelDef
+  readonly strip: WorldStripLoopDef
+  readonly placements: readonly WorldStripPlacement[]
+  readonly chunkWidth: number
 }

@@ -360,22 +360,28 @@ export class LevelRunner {
     const biome = seg.biome ?? defaultBiome
     const textureKey = PLATFORM_TEXTURE_BY_BIOME[biome] ?? 'platform'
 
+    const centerX = seg.x + seg.width / 2
+    const centerY = seg.y + seg.height / 2
+
+    // 静态碰撞体：永远不可见；视觉由下方的 TileSprite 提供（或在 invisible 关
+    // 卡下完全不画，由世界底图负责）。
+    const body = this.platforms.create(centerX, centerY, textureKey) as Phaser.Physics.Arcade.Sprite
+    body.setVisible(false)
+    body.setDisplaySize(seg.width, seg.height)
+    body.refreshBody()
+
+    // `invisible: true`（例如 WorldStripSystem 管的关卡）：只要碰撞，不要 TileSprite。
+    // 这样"把地面画在底图里"的关卡不会被生成出一排重复的瓦片色块。
+    if (seg.invisible === true) {
+      return [body]
+    }
+
     // TileSprite 可以按纹理铺砖，不会像 setScale 那样被拉伸糊掉。但 Arcade 静态体
     // 用 tileSprite 不太顺手；这里用"多块 sprite 拼平台"的方式，保证
     // 视觉是平铺的 tile，物理是连续的静态矩形。
     const TILE_W = 32
     const TILE_H = 16
 
-    const centerX = seg.x + seg.width / 2
-    const centerY = seg.y + seg.height / 2
-
-    // 第一块：做成与目标 width×height 等大的静态体，但贴图用 TileSprite 铺
-    const body = this.platforms.create(centerX, centerY, textureKey) as Phaser.Physics.Arcade.Sprite
-    body.setVisible(false) // 实际贴图由 TileSprite 提供
-    body.setDisplaySize(seg.width, seg.height)
-    body.refreshBody()
-
-    // 独立 TileSprite 做视觉（不进 platforms group，不参与碰撞）
     const tile = this.scene.add.tileSprite(
       seg.x,
       seg.y,

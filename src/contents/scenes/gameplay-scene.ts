@@ -19,6 +19,8 @@
 
 import * as Phaser from 'phaser'
 import {
+  ASSET_KEYS,
+  AUDIO_TUNING,
   CAPABILITY_IDS,
   EVENT_KEYS,
   FLYING_ENEMY_TUNING,
@@ -47,6 +49,10 @@ import type {
 import { ACTION_IDS } from '../constants'
 import { LEVEL_01 } from '../data/levels/level-01'
 import { LEVEL_02 } from '../data/levels/level-02'
+import {
+  LEVEL_WORLD_STRIP_DEMO,
+  WORLD_STRIP_LEVELS,
+} from '../data/levels/world-strip-demo'
 import { SKILL_REGISTRY } from '../data/skills/skill-registry'
 import { DIALOGUE_REGISTRY } from '../data/dialogues'
 import { BOSS_REGISTRY } from '../data/bosses'
@@ -63,6 +69,7 @@ import { InputSystem } from '../systems/input-system'
 import { LevelRunner, LOOP_WORLD_MAX_X } from '../systems/level-runner'
 import { ParallaxSystem } from '../systems/parallax-system'
 import { ScreenBoundsSystem } from '../systems/screen-bounds-system'
+import { WorldStripSystem } from '../systems/world-strip-system'
 import { DialogueRunner } from '../systems/dialogue-runner'
 import {
   PhaseController,
@@ -85,6 +92,27 @@ const eventBus = useEventBus()
 const LEVEL_REGISTRY: Readonly<Record<string, LevelDef>> = {
   [LEVEL_01.id]: LEVEL_01,
   [LEVEL_02.id]: LEVEL_02,
+  [LEVEL_WORLD_STRIP_DEMO.id]: LEVEL_WORLD_STRIP_DEMO,
+}
+
+/**
+ * 当前默认关卡。Demo commit：切到 world-strip 演示（可变宽底图 + 循环地面轮廓）；
+ * 要回到 LEVEL_01 只改这一行。
+ */
+const DEFAULT_LEVEL: LevelDef = LEVEL_WORLD_STRIP_DEMO
+
+/**
+ * 关卡 id → Phaser audio key 的映射。`startBgmForLevel` 按当前关卡查表；
+ * 未声明的关卡跑静音（不影响场景正确性，只是没音乐）。
+ *
+ * 当前只有一首曲子（Rust City）；把新曲加到 `ASSET_KEYS.AUDIO` + `BGM_URLS`
+ * + `BootScene.preload` 之后，在此添加一行即可。复用同一首曲子（例如
+ * `world-strip-demo` 暂借 level-01 的 BGM）也无所谓 —— key 相同只加载一次。
+ */
+const LEVEL_BGM: Readonly<Record<string, string | undefined>> = {
+  [LEVEL_01.id]: ASSET_KEYS.AUDIO.BGM_LEVEL_01,
+  // level-02 暂无专属 BGM → 静音
+  [LEVEL_WORLD_STRIP_DEMO.id]: ASSET_KEYS.AUDIO.BGM_LEVEL_01,
 }
 
 export class GameplayScene extends Phaser.Scene {
@@ -96,12 +124,16 @@ export class GameplayScene extends Phaser.Scene {
   private cameraDirector!: CameraDirector
   private parallax!: ParallaxSystem
   private screenBounds!: ScreenBoundsSystem
+  /** 仅 world-strip 关卡会创建；普通关卡留 null */
+  private worldStrip: WorldStripSystem | null = null
   private phaseController!: PhaseController
   private dialogueRunner!: DialogueRunner
   /** 小飞兵对象池 —— 仅 running phase 用定时器 spawn；BossPhase 进入时清场 */
   private flyingEnemies!: FlyingEnemyPool
   /** 小飞兵 spawn 定时器（固定 interval；回调里按 phase 过滤） */
   private flyerSpawner!: Phaser.Time.TimerEvent
+  /** 关卡 BGM（Level 01 = "Rust City"）。循环播放；pause/resume/shutdown 里同步暂停。 */
+  private bgm: Phaser.Sound.BaseSound | null = null
 
   /** 已物化的 NPC 实体，按 id 可以反查到 */
   private npcs = new Map<string, NpcEntity>()
@@ -150,8 +182,8 @@ export class GameplayScene extends Phaser.Scene {
 
   create(): void {
     // ---- 1. 选关卡 ----
-    const levelId = this.initData.levelId ?? LEVEL_01.id
-    const level = LEVEL_REGISTRY[levelId] ?? LEVEL_01
+    const levelId = this.initData.levelId ?? DEFAULT_LEVEL.id
+    const level = LEVEL_REGISTRY[levelId] ?? DEFAULT_LEVEL
     this.levelDef = level
 
     this.cameras.main.setBackgroundColor('#1a1a2e')
@@ -162,6 +194,10 @@ export class GameplayScene extends Phaser.Scene {
     if (this.initData.startCheckpointId) {
       this.levelRunner.setActiveCheckpoint(this.initData.startCheckpointId)
     }
+
+    // World-strip 关卡：准备 WorldStripSystem。普通关卡 null 即可。
+    const stripBuild = WORLD_STRIP_LEVELS[level.id]
+    this.worldStrip = stripBuild ? new WorldStripSystem(this, stripBuild) : null
 
     // ---- 3. 玩家 ----
     const spawn = this.levelRunner.getActiveSpawn()
@@ -209,14 +245,23 @@ export class GameplayScene extends Phaser.Scene {
     // loop 模式：相机 X 边界设成 "事实上无限"（10 亿像素），让 auto-scroll 一直跑下去
     const cameraWorldW = level.loop === true ? LOOP_WORLD_MAX_X : level.width
     this.cameraDirector.setBounds(0, 0, cameraWorldW, level.height)
+    // 世界比相机高（例如 world-strip 的 672×600）时，把相机 Y 锁在底部，让
+    // 玩家能看到地面；世界 ≤ 相机高度则为 0，行为不变。
+    const cameraY = Math.max(0, level.height - this.cameras.main.height)
+    // 初始相机 X：让玩家横向落在屏幕正中。以前用固定 200 偏移会把玩家推到
+    // 1/4 位置，spawn.x 较小时还会被 bounds 夹到屏幕最左 —— 现在统一用
+    // `cam.width / 2`。auto-scroll 会把玩家慢慢往左挤（BASE_FORWARD_RATIO=0.8），
+    // 所以居中起步正好给玩家最大的反应余量。
+    const halfCameraW = this.cameras.main.width / 2
     const scrollMode = level.scroll?.mode ?? 'auto-right'
     this.savedScrollMode = scrollMode
     if (scrollMode === 'auto-right') {
       const speed: number = level.scroll?.speed ?? SCROLL_TUNING.DEFAULT_SPEED
       this.cameraDirector.autoScrollRight(speed)
-      this.cameras.main.setScroll(Math.max(0, spawn.x - 200), 0)
+      this.cameras.main.setScroll(Math.max(0, spawn.x - halfCameraW), cameraY)
     } else if (scrollMode === 'follow') {
       this.cameraDirector.follow(this.player.sprite)
+      this.cameras.main.setScroll(this.cameras.main.scrollX, cameraY)
     } else {
       this.cameraDirector.lock(spawn.x, spawn.y)
     }
@@ -391,7 +436,10 @@ export class GameplayScene extends Phaser.Scene {
       fromTransition: this.initData.fromTransition === true,
     } satisfies LevelStartedPayload)
 
-    // ---- 15. shutdown 清理 ----
+    // ---- 15. BGM 起播（当前仅 level-01 → rust-city；其他关卡可在此按 levelId 分支） ----
+    this.startBgmForLevel()
+
+    // ---- 16. shutdown 清理 ----
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown)
 
     if (this.debug) {
@@ -446,6 +494,8 @@ export class GameplayScene extends Phaser.Scene {
     if (this.levelRunner.isLooping()) {
       const cam = this.cameras.main
       this.levelRunner.tickSpawner(cam.scrollX, cam.width)
+      // World-strip 关卡：用同一组相机坐标同步推动底图 chunk 的 spawn/despawn
+      this.worldStrip?.tickSpawner(cam.scrollX, cam.width)
     }
 
     // NPC 离开检测：玩家离开 NPC 的 zone 后清 currentNpcInRange
@@ -715,12 +765,46 @@ export class GameplayScene extends Phaser.Scene {
   // 监听器
   // =========================================================================
 
+  // =========================================================================
+  // BGM（真实音频资源；占位纹理和它们分开管）
+  // =========================================================================
+
+  /**
+   * 根据当前 levelId 选 BGM，按 `LEVEL_BGM` 表查找。
+   *   - 表里没有的关卡 → 静音（不报错）；
+   *   - 表里有但 cache 里找不到（preload 漏加）→ 控制台 warn + 静音。
+   *
+   * audio 在 BootScene 里通过 `this.load.audio(key, url)` 预加载；这里只做
+   * `sound.add` + play。play 可能被浏览器 autoplay 策略阻塞，Phaser 会在
+   * 用户首次输入后自动 resume AudioContext；不要让 play 失败把场景带炸。
+   */
+  private startBgmForLevel(): void {
+    const key = LEVEL_BGM[this.levelDef.id]
+    if (!key) return
+    if (!this.cache.audio.exists(key)) {
+      console.warn(`[GameplayScene] BGM "${key}" 未加载（检查 BootScene.preload），跳过`)
+      return
+    }
+    this.bgm = this.sound.add(key, {
+      loop: true,
+      volume: AUDIO_TUNING.GAME_VOLUME,
+    })
+    try {
+      this.bgm.play()
+    } catch (err) {
+      console.warn('[GameplayScene] BGM play 阻塞（将在用户首次输入后恢复）:', err)
+    }
+  }
+
   private handlePause = (): void => {
     this.scene.pause()
+    // scene.pause 不会停 sound manager；BGM 要手动暂停，否则暂停菜单下音乐仍在循环。
+    this.bgm?.pause()
   }
 
   private handleResume = (): void => {
     this.scene.resume()
+    this.bgm?.resume()
   }
 
   private handleRestart = (): void => {
@@ -743,6 +827,9 @@ export class GameplayScene extends Phaser.Scene {
     this.events.off(SCENE_EVENT_BOSS_PHASE_CLEARED, this.onBossPhaseCleared)
 
     // 销毁顺序：从外到内
+    this.bgm?.stop()
+    this.bgm?.destroy()
+    this.bgm = null
     this.flyerSpawner?.remove(false)
     this.phaseController?.destroy()
     this.dialogueRunner?.destroy()
@@ -751,6 +838,8 @@ export class GameplayScene extends Phaser.Scene {
     this.skillManager?.destroy()
     this.screenBounds?.destroy()
     this.parallax?.destroy()
+    this.worldStrip?.destroy()
+    this.worldStrip = null
     this.cameraDirector?.destroy()
     this.inputSystem?.destroy()
     this.flyingEnemies?.destroy()

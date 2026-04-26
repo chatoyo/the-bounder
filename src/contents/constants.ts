@@ -257,3 +257,32 @@ export const PICKUP_IDS = {
   FLIGHT_ORB: 'flight-orb',
   HP_CRYSTAL: 'hp-crystal',
 } as const
+
+// ---- Audio asset keys ----
+// 约定：key 在 BootScene.preload 里 `this.load.audio(key, url)`，播放侧用
+// `this.sound.add(key, ...)`；url 走 Vite 的 `public/` 根（见 public/bgms/*）。
+// 音乐文件本身放 public/bgms/*.mp3，菜单音乐由 Vue 页面直接用 HTMLAudio 播放，
+// 所以 ASSET_KEYS.AUDIO 这里只收录需要 Phaser 管理的音频。
+export const ASSET_KEYS = {
+  AUDIO: {
+    /** Level 01 BGM —— "Rust City"，GameplayScene 里循环播放 */
+    BGM_LEVEL_01: 'bgm-level-01',
+  },
+} as const
+
+// ---- BGM 资源 URL（Vue 侧 + Phaser 侧共用） ----
+// 放在常量表里便于将来统一改路径 / 接入 hashing。
+export const BGM_URLS = {
+  /** 主菜单（home-page）BGM；Vue 层直接 new Audio(...)  */
+  MENU: '/bgms/menu.mp3',
+  /** Level 01 BGM；BootScene.preload 里交给 Phaser loader */
+  LEVEL_01: '/bgms/1-rust-city.mp3',
+} as const
+
+// ---- 音量 / 淡入淡出 调参 ----
+export const AUDIO_TUNING = {
+  /** 菜单 BGM 默认音量（0-1） */
+  MENU_VOLUME: 0.5,
+  /** Level 01 BGM 默认音量（0-1） */
+  GAME_VOLUME: 0.45,
+} as const

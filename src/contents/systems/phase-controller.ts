@@ -161,11 +161,13 @@ export class RespawnPhase implements Phase {
     const spawn = this.ctx.levelRunner.getActiveSpawn()
     this.ctx.player.respawn(spawn.x, spawn.y, spawn.id)
 
-    // 自动滚动模式下，相机可能已推过 checkpoint；回滚到玩家左侧 200px 防止立即被挤死
+    // 自动滚动模式下，相机可能已推过 checkpoint；把玩家横向居中后再 resume auto-scroll。
+    // 用 `cam.width / 2` 和 GameplayScene.create() 的初始 setScroll 保持一致，免得
+    // "首次出生居中 / 复活偏左" 两套手感。
     const cam = this.ctx.scene.cameras.main
     const bounds = cam.getBounds()
     const maxScrollX = Math.max(0, bounds.width - cam.width)
-    const targetScrollX = Math.min(Math.max(0, spawn.x - 200), maxScrollX)
+    const targetScrollX = Math.min(Math.max(0, spawn.x - cam.width / 2), maxScrollX)
     cam.setScroll(targetScrollX, cam.scrollY)
 
     this.ctx.controller.transition('running')
