@@ -108,7 +108,9 @@ export class RunningPhase implements Phase {
   }
 
   enter(): void {
-    this.ctx.scene.physics.world.resume()
+    // `?.`：scene 若正处于 shutdown 中（Phaser 4 的 ArcadePhysics.shutdown 会把
+    // `world` 置 null），这里静默跳过 —— 反正没有 world 也就无所谓"恢复"物理了。
+    this.ctx.scene.physics.world?.resume()
     this.ctx.inputSystem.setMask(null)
   }
 
@@ -143,7 +145,11 @@ export class RespawnPhase implements Phase {
 
   enter(): void {
     this.elapsed = 0
-    this.ctx.scene.physics.world.pause()
+    // `?.`：RespawnPhase.enter 可能在 scene 已 shutdown、`physics.world` 被
+    // Phaser 置 null 的边角 case 里被触发（见 gameplay-scene.ts handlePlayerDied
+    // 的 isActive 护栏注释）。没有 world 就不用 pause —— scene 都走了，物理本来
+    // 就不会再 tick。
+    this.ctx.scene.physics.world?.pause()
     // 彻底屏蔽输入，避免 respawn 瞬间仍在按左右
     this.ctx.inputSystem.setMask(new Set())
     this.ctx.scene.cameras.main.flash(220, 255, 80, 80)

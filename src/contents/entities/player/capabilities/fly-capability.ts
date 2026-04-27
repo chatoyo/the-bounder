@@ -47,6 +47,7 @@ export class FlyCapability implements Capability {
     // 初始水平速度直接设到巡航速度，避免"刚起飞被甩到屏幕左边"的卡顿感
     const cruise = this.getIdleTargetX()
     body.setVelocityX(cruise)
+    console.log('FlyCapability: initial velocityX', cruise)
   }
 
   detach(): void {

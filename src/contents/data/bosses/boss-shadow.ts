@@ -21,7 +21,7 @@ import type { BossDef } from '@/contents/types'
 
 export const BOSS_SHADOW: BossDef = {
   id: 'boss-shadow',
-  displayName: '影之使徒',
+  displayName: '边界清理程序',
   maxHp: 30,
   spawnX: 3000,
   spawnY: 300,

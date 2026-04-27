@@ -36,7 +36,10 @@ export class DialoguePhase implements Phase {
 
   enter(data?: unknown): void {
     const def = data as DialogueDef | undefined
-    this.ctx.scene.physics.world.pause()
+    // `?.`：scene 若正处于 shutdown / 未完成 start 的中间态，world 会是 null；
+    // 跳过 pause，让 phase 本身正常启动就好（对话开始时 scene 基本不会走到这个
+    // 分支，但保持风格一致更安全）。
+    this.ctx.scene.physics.world?.pause()
     this.ctx.inputSystem.setMask(DIALOGUE_MASK)
 
     if (def) {

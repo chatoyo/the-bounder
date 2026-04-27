@@ -134,8 +134,8 @@ export const PARALLAX_FACTORS = {
 
 // ---- 玩家可调参数（"vibe"：跳得软不软、飞得灵不灵，都在这里改） ----
 export const PLAYER_TUNING = {
-  MAX_HP: 10,
-  INVULN_MS: 1000,
+  MAX_HP: 3,
+  INVULN_MS: 500,
   /**
    * 玩家按 A/D（左/右）时的水平速度。必须 > SCROLL_TUNING.DEFAULT_SPEED，
    * 否则 auto-right 关卡里按住右键也跑不赢相机，会被挤死。
@@ -159,7 +159,7 @@ export const PLAYER_TUNING = {
   /** 最多可在"空中"按跳的次数；1 = 二段跳（1 次地面 + 1 次空中） */
   MAX_AIR_JUMPS: 1,
 
-  BULLET_SPEED: 700,
+  BULLET_SPEED: 800,
   BULLET_LIFETIME_MS: 1200,
   FIRE_COOLDOWN_MS: 220,
 
@@ -169,7 +169,7 @@ export const PLAYER_TUNING = {
    * 1.0 = 在屏幕上悬停不动（玩家与世界同速）；< 1 会被相机推向左缘；
    * > 1 会主动向右跑赢相机。
    */
-  FLY_IDLE_RATIO: 1.0,
+  FLY_IDLE_RATIO: 1,
   /** 飞行水平最高速 相对 巡航速度 的偏移上限 */
   FLY_SPEED_X: 320,
   /** 飞行垂直最高速 */
@@ -337,6 +337,32 @@ export const ASSET_KEYS = {
     BGM_LEVEL_01: 'bgm-level-01',
     /** Boss 场景 BGM —— ok6.mp3，world-strip-boss 关卡专用 */
     BGM_BOSS: 'bgm-boss',
+    /** 短音效：角色受击（敌方子弹 / hazard 命中时）。由 GameplayScene 在 PLAYER_DAMAGED 监听器里播放 */
+    SFX_DAMAGE: 'sfx-damage',
+    /** 短音效：玩家开枪 —— ShootCapability 每次成功 fire 时播放 */
+    SFX_SHOOT: 'sfx-shoot',
+    /** 短音效：到达 checkpoint —— GameplayScene 的 checkpoint overlap 回调里播放 */
+    SFX_CHECKPOINT: 'sfx-checkpoint',
+    /** 短音效：玩家死亡 */
+    SFX_PLAYER_DIE: 'sfx-player-die',
+    /** 短音效：Boss 被击败 */
+    SFX_BOSS_DEFEATED: 'sfx-boss-defeated',
+    /** 短音效：Boss 阶段过渡 */
+    SFX_BOSS_PHASE_TRANSITION: 'sfx-boss-phase-transition',
+    /**
+     * 短音效：玩家子弹命中敌方单位。两处触发：
+     *   1) boss-phase.ts `onBulletHitBoss` —— 打中 boss
+     *   2) gameplay-scene.ts 玩家子弹 vs 小飞兵 overlap —— 击落小飞兵
+     * 两边共享同一个 key 是故意的：单一"击中反馈"音效 = 统一的打击感。若以后
+     * 要给 boss 加更重的命中音，再新开 key 分叉。
+     */
+    SFX_ENEMY_HIT: 'sfx-enemy-hit',
+    /**
+     * 短音效：玩家跳跃。JumpCapability 在每次成功起跳时播放 —— 地面跳 / coyote
+     * 跳 / 空中二段跳 都走同一个 key，作者未来若要二段跳换更"轻盈"的音色再分叉。
+     * 飞行状态（`player.isFlying`）下 JumpCapability 本身就 no-op，不会响。
+     */
+    SFX_JUMP: 'sfx-jump',
   },
 } as const
 
@@ -351,12 +377,52 @@ export const BGM_URLS = {
   BOSS: '/bgms/ok6.mp3',
 } as const
 
+// ---- 短音效（SFX）URL ----
+// 放在 public/sfx/*.mp3，由 BootScene.preload 交给 Phaser loader。
+// 文件缺失时 GameplayScene / ShootCapability 里的 `playSfx` 会检查 cache.audio.exists
+// 静默跳过，不会崩 scene。作者补 mp3 直接放到 public/sfx/ 对应文件名即可。
+export const SFX_URLS = {
+  /** 受击音效：玩家被敌方子弹 / hazard 命中触发 */
+  DAMAGE: '/sfx/damage.mp3',
+  /** 开枪音效：ShootCapability 每次 fire 子弹时触发 */
+  SHOOT: '/sfx/shoot.mp3',
+  /** Checkpoint 激活音效：玩家首次触碰新 checkpoint 时触发 */
+  CHECKPOINT: '/sfx/checkpoint.mp3',
+  /** 击中敌人音效：玩家子弹命中 boss / 小飞兵时触发 */
+  ENEMY_HIT: '/sfx/enemy-hit.mp3',
+  /** 跳跃音效：JumpCapability 每次成功起跳（地面 / coyote / 空中二段）时触发 */
+  JUMP: '/sfx/jump.mp3',
+  /** 玩家死亡音效 */
+  PLAYER_DIE: '/sfx/player-die.mp3',
+  /** Boss 被击败音效 */
+  BOSS_DEFEATED: '/sfx/boss-defeated.mp3',
+  /** Boss 阶段过渡音效 */
+  BOSS_PHASE_TRANSITION: '/sfx/boss-transition.mp3',
+
+} as const
+
 // ---- 音量 / 淡入淡出 调参 ----
 export const AUDIO_TUNING = {
   /** 菜单 BGM 默认音量（0-1） */
   MENU_VOLUME: 0.5,
   /** Level 01 BGM 默认音量（0-1） */
   GAME_VOLUME: 0.45,
+  /** 受击短音效音量 —— BGM 之上短促叠一下，稍压低避免盖住音乐 */
+  SFX_DAMAGE_VOLUME: 0.55,
+  /** 开枪短音效音量 —— 射击频率高，压得比 damage 更低，否则很快变吵 */
+  SFX_SHOOT_VOLUME: 0.3,
+  /** Checkpoint 短音效音量 —— 低频事件，给一个明显的反馈音量 */
+  SFX_CHECKPOINT_VOLUME: 0.6,
+  /** 击中敌人短音效音量 —— 连射命中时会高频叠播，压到比 damage 更低防止变吵 */
+  SFX_ENEMY_HIT_VOLUME: 0.5,
+  /** 跳跃短音效音量 —— 二段跳连响两次时不要盖过 BGM，压到中等偏低 */
+  SFX_JUMP_VOLUME: 1,
+  /** 玩家死亡短音效音量 */
+  SFX_PLAYER_DIE_VOLUME: 0.8,
+  /** Boss 被击败短音效音量 */
+  SFX_BOSS_DEFEATED_VOLUME: 0.8,
+  /** Boss 阶段过渡短音效音量 */
+  SFX_BOSS_PHASE_TRANSITION_VOLUME: 0.6,
 } as const
 
 // ---- 视频资源 URL（仅供 Vue 层的 <video> overlay 使用，不走 Phaser loader） ----

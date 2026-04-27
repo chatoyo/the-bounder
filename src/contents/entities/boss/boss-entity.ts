@@ -52,7 +52,7 @@
  */
 
 import * as Phaser from 'phaser'
-import { EVENT_KEYS } from '@/contents/constants'
+import { ASSET_KEYS, AUDIO_TUNING, EVENT_KEYS } from '@/contents/constants'
 import type {
   BossDef,
   BossDefeatedPayload,
@@ -62,6 +62,7 @@ import type {
 import type { BulletPool } from '@/contents/entities/projectile/bullet-pool'
 import type { CodeDanmakuPool } from '@/contents/entities/enemies/code-danmaku-pool'
 import { useEventBus } from '@/runtime'
+import { playSfx } from '@/contents/systems/sfx'
 
 const eventBus = useEventBus()
 
@@ -414,6 +415,7 @@ export class BossEntity {
     })
 
     this.applyPhaseVisuals()
+    playSfx(this.scene, ASSET_KEYS.AUDIO.SFX_BOSS_PHASE_TRANSITION, AUDIO_TUNING.SFX_BOSS_PHASE_TRANSITION_VOLUME)
 
     // 阶段转换每场 boss 战最多两次（1→2、2→3），留一条 log 方便调参 / 复盘
     console.log(`[BossEntity] phase ${from} → ${next} (HP ${this.hp}/${this.def.maxHp})`)

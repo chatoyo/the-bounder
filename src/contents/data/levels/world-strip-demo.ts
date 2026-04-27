@@ -87,9 +87,9 @@ const WORLD_STRIP_DEMO: WorldStripLoopDef = {
       width: 1569,
       overlapNext: 460,
       sections: [
-        { startX: 0, endX: 826, groundHeight: 170 },
-        { startX: 826, endX: 1055, groundHeight: 150 },
-        { startX: 1055, endX: 1569, groundHeight: 126 },
+        { startX: 0, endX: 826, groundHeight: 180 },
+        { startX: 826, endX: 1055, groundHeight: 160 },
+        { startX: 1055, endX: 1569, groundHeight: 136 },
       ],
     },
     // 2.png：1569×672 原生；平地 h=165
@@ -97,16 +97,19 @@ const WORLD_STRIP_DEMO: WorldStripLoopDef = {
       textureKey: 'world-strip-2',
       url: '/pics/2.png',
       width: 1569,
-      overlapNext: 550,
-      sections: [{ startX: 0, endX: 1569, groundHeight: 126 }],
+      overlapNext: 0,
+      sections: [
+        { startX: 0, endX: 869, groundHeight: 136 },
+        { startX: 589, endX: 1569, groundHeight: 150 },
+      ],
     },
     // 3.png：3018×1280 原生，按 672 高度等比缩放到 1584 × 672 显示；平地 h=165
     {
       textureKey: 'world-strip-3',
       url: '/pics/3.png',
-      width: 1584,
+      width: 1570,
       overlapNext: 0,
-      sections: [{ startX: 0, endX: 1584, groundHeight: 126 }],
+      sections: [{ startX: 0, endX: 1570, groundHeight: 150 }],
     },
     // loop
     // 1.png：1569×672 原生；三段阶梯下降 209 → 190 → 165
@@ -116,9 +119,9 @@ const WORLD_STRIP_DEMO: WorldStripLoopDef = {
       width: 1569,
       overlapNext: 460,
       sections: [
-        { startX: 0, endX: 826, groundHeight: 170 },
-        { startX: 826, endX: 1055, groundHeight: 150 },
-        { startX: 1055, endX: 1569, groundHeight: 126 },
+        { startX: 0, endX: 826, groundHeight: 180 },
+        { startX: 826, endX: 1055, groundHeight: 160 },
+        { startX: 1055, endX: 1569, groundHeight: 136 },
       ],
     },
     // 2.png：1569×672 原生；平地 h=165
@@ -126,16 +129,19 @@ const WORLD_STRIP_DEMO: WorldStripLoopDef = {
       textureKey: 'world-strip-5',
       url: '/pics/2.png',
       width: 1569,
-      overlapNext: 550,
-      sections: [{ startX: 0, endX: 1569, groundHeight: 126 }],
+      overlapNext: 0,
+      sections: [
+        { startX: 0, endX: 869, groundHeight: 136 },
+        { startX: 589, endX: 1569, groundHeight: 150 },
+      ],
     },
     // 3.jpg：3018×1280 原生，按 672 高度等比缩放到 1584 × 672 显示；平地 h=165
     {
       textureKey: 'world-strip-6',
       url: '/pics/3.png',
-      width: 1584,
+      width: 1570,
       overlapNext: 0,
-      sections: [{ startX: 0, endX: 1584, groundHeight: 126 }],
+      sections: [{ startX: 0, endX: 1570, groundHeight: 150 }],
     },
     // final: 
     {
@@ -143,7 +149,7 @@ const WORLD_STRIP_DEMO: WorldStripLoopDef = {
       url: '/pics/4.jpg',
       width: 1568,
       overlapNext: 0,
-      sections: [{ startX: 0, endX: 1568, groundHeight: 126 }],
+      sections: [{ startX: 0, endX: 1568, groundHeight: 150 }],
     },
   ],
   extraSegments: [
@@ -154,8 +160,8 @@ const WORLD_STRIP_DEMO: WorldStripLoopDef = {
     {
       type: 'level-exit',
       id: 'to-boss',
-      x: 8950,
-      y: 540,
+      x: 10000,
+      y: 500,
       nextLevelId: 'world-strip-boss',
     },
   ],
@@ -252,20 +258,22 @@ export function buildWorldStripLevel(strip: WorldStripLoopDef): BuiltWorldStripL
 
   // ---- 3. 每张图起点放一个 checkpoint（loop 模式下每 chunk 复制 → 永久保留） ----
   const checkpoints: CheckpointSegmentDef[] = []
-  for (let i = 0; i < strip.images.length; i++) {
-    const img = strip.images[i]
-    const p = placements[i]
-    const groundH = findGroundHeightAt(img, SPAWN_PAD_X) ?? fallbackGroundHeight(img) ?? 80
-    const topY = height - groundH
-    checkpoints.push({
-      type: 'checkpoint',
-      id: `strip-img-${i}`,
-      // 往图内偏移一点，避开接缝；y 是 checkpoint 自身中心位置（略高于地面上沿）
-      x: p.leftX + SPAWN_PAD_X,
-      y: topY - 24,
-      // spawnY 让玩家脚底落在地面上沿附近（Player sprite 高 48，origin 0.5 → 中心往上抬 24）
-      spawnY: topY - 24,
-    })
+  if(strip.loop === false) {
+    for (let i = 0; i < strip.images.length; i++) {
+      const img = strip.images[i]
+      const p = placements[i]
+      const groundH = findGroundHeightAt(img, SPAWN_PAD_X) ?? fallbackGroundHeight(img) ?? 80
+      const topY = height - groundH
+      checkpoints.push({
+        type: 'checkpoint',
+        id: `strip-img-${i}`,
+        // 往图内偏移一点，避开接缝；y 是 checkpoint 自身中心位置（略高于地面上沿）
+        x: p.leftX + SPAWN_PAD_X,
+        y: topY - 24,
+        // spawnY 让玩家脚底落在地面上沿附近（Player sprite 高 48，origin 0.5 → 中心往上抬 24）
+        spawnY: topY - 24,
+      })
+    }
   }
 
   // ---- 4. 玩家初始 spawn ----

@@ -88,6 +88,7 @@ import {
   type BossPhaseEnterData,
 } from '../systems/phases/boss-phase'
 import { SkillManager } from '../systems/skill-manager'
+import { playSfx } from '../systems/sfx'
 import { useEventBus } from '@/runtime'
 
 const eventBus = useEventBus()
@@ -290,22 +291,6 @@ export class GameplayScene extends Phaser.Scene {
       if (skillId === SKILL_IDS.FLIGHT) this.skillManager.equip(SKILL_IDS.FLIGHT)
     }
 
-    // ---- Boss 场景专属：强制装备飞行 + 换上"悬浮平台"sprite ----
-    //
-    // world-strip-boss 是空中 boss 战：玩家应当一进来就能飞，不管前面关卡有没有捡
-    // 飞行 orb。同时视觉上换到 `player-floating-platform` 贴图（自带浮空平台），
-    // 把"现在是飞行战斗"这件事一眼传达给玩家。
-    //
-    // 执行顺序要求：必须在 `initData.unlockedSkills` 回放后触发，否则这里 equip 完
-    // 的 FlyCapability 会被后续 unlockedSkills 的 equip(FLIGHT) 二次 attach（equip
-    // 内部对已 equipped 的 id 会早退，但保险起见放在回放之后更直白）。
-    // 只针对 world-strip-boss 生效；其它关卡行为不变。
-    if (level.id === LEVEL_WORLD_STRIP_BOSS.id) {
-      this.skillManager.unlock(SKILL_IDS.FLIGHT)
-      this.skillManager.equip(SKILL_IDS.FLIGHT)
-      this.player.useStaticSprite('player-floating-platform')
-    }
-
     // ---- 7. 相机 ----
     this.cameraDirector = new CameraDirector(this)
     // loop 模式：相机 X 边界设成 "事实上无限"（10 亿像素），让 auto-scroll 一直跑下去
@@ -333,6 +318,23 @@ export class GameplayScene extends Phaser.Scene {
     }
     // 把 director 塞到 scene.data 供 phase 按名查
     this.data.set('cameraDirector', this.cameraDirector)
+
+
+    // ---- Boss 场景专属：强制装备飞行 + 换上"悬浮平台"sprite ----
+    //
+    // world-strip-boss 是空中 boss 战：玩家应当一进来就能飞，不管前面关卡有没有捡
+    // 飞行 orb。同时视觉上换到 `player-floating-platform` 贴图（自带浮空平台），
+    // 把"现在是飞行战斗"这件事一眼传达给玩家。
+    //
+    // 执行顺序要求：必须在 `initData.unlockedSkills` 回放后触发，否则这里 equip 完
+    // 的 FlyCapability 会被后续 unlockedSkills 的 equip(FLIGHT) 二次 attach（equip
+    // 内部对已 equipped 的 id 会早退，但保险起见放在回放之后更直白）。
+    // 只针对 world-strip-boss 生效；其它关卡行为不变。
+    if (level.id === LEVEL_WORLD_STRIP_BOSS.id) {
+      this.skillManager.unlock(SKILL_IDS.FLIGHT)
+      this.skillManager.equip(SKILL_IDS.FLIGHT)
+      this.player.useStaticSprite('player-floating-platform')
+    }
 
     // ---- 8. 视差背景 / 前景 ----
     this.parallax = new ParallaxSystem(this, this.cameraDirector)
@@ -406,6 +408,10 @@ export class GameplayScene extends Phaser.Scene {
           id: res.id,
           x: sp.x,
         } satisfies CheckpointReachedPayload)
+        // 短音效：只在"新激活" checkpoint 时响一次 —— 复活后再滑过同一个
+        // checkpoint、或 loop 关卡里每个 chunk 复制出来的 checkpoint 重复触碰，
+        // `res.changed === false` 不响，避免回跑 / 循环世界变成一路叮叮叮。
+        playSfx(this, ASSET_KEYS.AUDIO.SFX_CHECKPOINT, AUDIO_TUNING.SFX_CHECKPOINT_VOLUME)
       }
     }
     this.physics.add.overlap(
@@ -450,6 +456,8 @@ export class GameplayScene extends Phaser.Scene {
         if (!b.active || !s.active) return
         this.playerBullets.kill(b)
         this.flyingEnemies.kill(s)
+        // 击落小飞兵短音效；和 boss 命中共用 key → 打击感统一
+        playSfx(this, ASSET_KEYS.AUDIO.SFX_ENEMY_HIT, AUDIO_TUNING.SFX_ENEMY_HIT_VOLUME)
       },
     )
 
@@ -531,6 +539,7 @@ export class GameplayScene extends Phaser.Scene {
     eventBus.on(EVENT_KEYS.GAME_RESUME, this.handleResume)
     eventBus.on(EVENT_KEYS.GAME_RESTART, this.handleRestart)
     eventBus.on(EVENT_KEYS.PLAYER_DIED, this.handlePlayerDied)
+    eventBus.on(EVENT_KEYS.PLAYER_DAMAGED, this.handlePlayerDamagedSfx)
 
     // Boss phase 清场 → 关卡完成
     this.events.on(SCENE_EVENT_BOSS_PHASE_CLEARED, this.onBossPhaseCleared)
@@ -862,7 +871,9 @@ export class GameplayScene extends Phaser.Scene {
       y: this.cameras.main.scrollY + this.cameras.main.height / 2,
     }
     this.cameraDirector.lock(snap.x, snap.y)
-    this.physics.world.pause()
+    // `?.`：scene 处于异步收尾（例如玩家在 2s boss 死亡缓冲内发起 restart / 离开页面），
+    // `physics.world` 可能已被 Phaser 置 null（ArcadePhysics.shutdown），跳过即可。
+    this.physics.world?.pause()
     // spawner 本身不停（time.addEvent 的 paused 会被 physics.world.pause 连带影响），
     // 不过回调里的 inSettlement 检查已经兜底；这里再显式清场避免残影。
     this.flyingEnemies.despawnAll()
@@ -910,6 +921,7 @@ export class GameplayScene extends Phaser.Scene {
         eventBus.off(EVENT_KEYS.BOSS_ENDING_ENDED, onEndingEnded)
         this.pendingBossEndingListener = null
         showVictoryPanel()
+        playSfx(this, ASSET_KEYS.AUDIO.SFX_BOSS_DEFEATED, AUDIO_TUNING.SFX_BOSS_DEFEATED_VOLUME)
       }
       this.pendingBossEndingListener = onEndingEnded
       eventBus.on(EVENT_KEYS.BOSS_ENDING_ENDED, onEndingEnded)
@@ -946,7 +958,9 @@ export class GameplayScene extends Phaser.Scene {
     } satisfies LevelCompletedPayload)
 
     // 停掉相机 + 物理
-    this.physics.world.pause()
+    // `?.`：和 onBossPhaseCleared 一样，completeLevel 可能在 shutdown / restart
+    // 链路的边角被再次进入，`physics.world` 可能已为 null，跳过即可。
+    this.physics.world?.pause()
     this.cameraDirector.lock(this.player.sprite.x, this.player.sprite.y)
     this.cameras.main.flash(400, 255, 255, 120)
 
@@ -1061,8 +1075,33 @@ export class GameplayScene extends Phaser.Scene {
   }
 
   private handlePlayerDied = (): void => {
+    // Scene 护栏：die() → emit PLAYER_DIED → 本 handler 的同步链路可能在
+    // scene 已经 shutdown（Phaser 4 的 ArcadePhysics.shutdown 把 world 置 null）
+    // 或还没 create 完的中间态里被触发。这种时候跑 transition(RESPAWN) 会在
+    // RespawnPhase.enter 里崩在 `physics.world.pause()`。
+    //
+    // 两道闸：
+    //   1) `scene.isActive()` —— scene 不在 RUNNING 状态（SHUTDOWN / SLEEPING
+    //      / PAUSED）就彻底不处理。反正玩家死了，马上 restart / 下一关自己会
+    //      重建 player + phase。
+    //   2) `this.physics?.world` —— 即便 isActive() 为 true，也兜一下 world
+    //      真的不在的场景（例如刚 SHUTDOWN 但 scene 状态还没翻到对应值的一帧）。
+    if (!this.scene.isActive()) return
+    if (!this.physics?.world) return
     if (this.phaseController.getCurrentId() === (PHASE_IDS.RESPAWN as PhaseId)) return
     this.phaseController.transition(PHASE_IDS.RESPAWN)
+  }
+
+  /**
+   * 受击短音效 —— 挂在 PLAYER_DAMAGED 上。`Player.damage` 已经做过无敌帧 /
+   * `_alive` 过滤，事件发出来就说明这一下"真的打中了"，直接响就好。
+   *
+   * 不在 `Player.damage` 里直接 `scene.sound.play`，是因为 Player 层本身不耦合
+   * scene 的 audio 资源；由 scene 侧做"听事件 → 放音效"的翻译，未来换 sfx 系统
+   * 只动这里一行。
+   */
+  private handlePlayerDamagedSfx = (): void => {
+    playSfx(this, ASSET_KEYS.AUDIO.SFX_DAMAGE, AUDIO_TUNING.SFX_DAMAGE_VOLUME)
   }
 
   private handleShutdown = (): void => {
@@ -1071,6 +1110,7 @@ export class GameplayScene extends Phaser.Scene {
     eventBus.off(EVENT_KEYS.GAME_RESUME, this.handleResume)
     eventBus.off(EVENT_KEYS.GAME_RESTART, this.handleRestart)
     eventBus.off(EVENT_KEYS.PLAYER_DIED, this.handlePlayerDied)
+    eventBus.off(EVENT_KEYS.PLAYER_DAMAGED, this.handlePlayerDamagedSfx)
     this.events.off(SCENE_EVENT_BOSS_PHASE_CLEARED, this.onBossPhaseCleared)
     // 若玩家在 boss 过场视频途中离开页面（退出到主页 / 直接 unmount Phaser），
     // completeLevel 挂的"等视频结束"一次性监听器要主动摘掉，避免泄漏到下一次 scene。

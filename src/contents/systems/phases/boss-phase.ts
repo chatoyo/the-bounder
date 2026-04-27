@@ -24,11 +24,12 @@
  */
 
 import * as Phaser from 'phaser'
-import { EVENT_KEYS, PHASE_IDS, POOL_SIZES } from '@/contents/constants'
+import { ASSET_KEYS, AUDIO_TUNING, EVENT_KEYS, PHASE_IDS, POOL_SIZES } from '@/contents/constants'
 import type { BossDef, PhaseId } from '@/contents/types'
 import { useEventBus } from '@/runtime'
 import { CodeDanmakuPool } from '@/contents/entities/enemies/code-danmaku-pool'
 import { BossEntity } from '@/contents/entities/boss/boss-entity'
+import { playSfx } from '../sfx'
 import type { Phase, PhaseContext } from '../phase-controller'
 
 const eventBus = useEventBus()
@@ -134,6 +135,8 @@ export class BossPhase implements Phase {
       }
       b.setPosition(-9999, -9999)
       this.boss.takeHit(1)
+      // 击中 boss 短音效；与小飞兵命中共享同一个 key 给玩家一个统一的"打到了"反馈
+      playSfx(this.ctx.scene, ASSET_KEYS.AUDIO.SFX_ENEMY_HIT, AUDIO_TUNING.SFX_ENEMY_HIT_VOLUME)
     }
     // 玩家子弹池的 group 可以通过 scene.data / 约定 key 共享；这里走 scene 自定义事件拿
     // —— 为了避免耦合，直接在 scene 侧挂 collider：让 scene 在 SCENE_EVENT 里告诉我们

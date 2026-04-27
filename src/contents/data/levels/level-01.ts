@@ -9,7 +9,7 @@
  *     checkpoint 在每个 chunk 里得到独立的 `@${k}` id，所以跑得再远也一直有
  *     respawn 点。pickup、NPC 只在原始位置出现一次。
  *   - 二段跳默认开启；关卡前段有一颗 flight-orb，拾取后可以 4 方向自由飞行。
- *   - Mid-boss "影之使徒" 在 x=2950 登场 —— 一次性事件（firedBossTriggers 保证），
+ *   - Mid-boss "边界清理程序" 在 x=2950 登场 —— 一次性事件（firedBossTriggers 保证），
  *     打完继续无限跑。没有 level-exit：本关永不转场。
  *   - 三层视差：天空（最慢）→ 远山（慢）→ 近山+树（略慢）；midground 为平台/hazard；
  *     前景草叶（~1.35x）强化速度感。
@@ -132,7 +132,7 @@ export const LEVEL_01: LevelDef = {
       y: 360,
     },
 
-    // ----------------- Boss trigger —— "影之使徒"，在 x=2950 触发 -----------------
+    // ----------------- Boss trigger —— "边界清理程序"，在 x=2950 触发 -----------------
     // BossPhase 不再锁相机：auto-scroll 继续，boss 从屏幕右侧滑入并跟随视口。
     // 击破后 2s → BOSS_VICTORY 结算面板 → LevelTransitionOverlay → 载入 `nextLevelId`。
     // firedBossTriggers 保证本次关卡生命周期内只触发一次。

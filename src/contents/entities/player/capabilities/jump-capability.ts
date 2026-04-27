@@ -11,8 +11,9 @@
  */
 
 import * as Phaser from 'phaser'
-import { ACTION_IDS, PLAYER_TUNING } from '@/contents/constants'
+import { ACTION_IDS, ASSET_KEYS, AUDIO_TUNING, PLAYER_TUNING } from '@/contents/constants'
 import type { ActionId, CapabilityId } from '@/contents/types'
+import { playSfx } from '@/contents/systems/sfx'
 import type { Capability, CapabilityContext } from './capability'
 import type { Player } from '../player'
 
@@ -65,6 +66,8 @@ export class JumpCapability implements Capability {
       // 用掉这两个窗口
       this.lastJumpPressedAt = -Infinity
       this.lastGroundedAt = -Infinity
+      // 地面 / coyote 跳响一声；空中二段跳在 onAction 里独立响（同 key）
+      playSfx(this.scene, ASSET_KEYS.AUDIO.SFX_JUMP, AUDIO_TUNING.SFX_JUMP_VOLUME)
     }
   }
 
@@ -93,6 +96,8 @@ export class JumpCapability implements Capability {
         this.airJumpsUsed += 1
         // 用掉 buffer，避免接下来的 update() 再吃一次 coyote
         this.lastJumpPressedAt = -Infinity
+        // 空中二段跳短音效；与地面跳共用 key，音色想区分时再分叉
+        playSfx(this.scene, ASSET_KEYS.AUDIO.SFX_JUMP, AUDIO_TUNING.SFX_JUMP_VOLUME)
       }
     } else if (phase === 'up') {
       // 松开时若还在上升，裁短纵速

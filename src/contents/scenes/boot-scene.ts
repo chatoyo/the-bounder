@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser'
-import { ASSET_KEYS, BGM_URLS, GAME_CONFIG, SCENE_KEYS } from '../constants'
+import { ASSET_KEYS, BGM_URLS, GAME_CONFIG, SCENE_KEYS, SFX_URLS } from '../constants'
 import { WORLD_STRIP_DEMO_DEF } from '../data/levels/world-strip-demo'
 import { WORLD_STRIP_BOSS_DEF } from '../data/levels/world-strip-boss'
 import type { WorldStripImageDef, WorldStripLoopDef } from '../types'
@@ -106,6 +106,19 @@ export class BootScene extends Phaser.Scene {
     // ---- 音频：真实文件走 Phaser loader（占位纹理仍在 create() 里 generateTexture） ----
     this.load.audio(ASSET_KEYS.AUDIO.BGM_LEVEL_01, BGM_URLS.LEVEL_01)
     this.load.audio(ASSET_KEYS.AUDIO.BGM_BOSS, BGM_URLS.BOSS)
+
+    // ---- 短音效（SFX）：受击 / 开枪 / checkpoint ----
+    // 文件暂未上传时，Phaser loader 会发 404 warn，但不会崩场景；播放侧用
+    // `playSfx` 工具函数检 `cache.audio.exists`，不存在就静默跳过。
+    // 作者补 mp3 直接丢 public/sfx/ 即可；不需要再改这里。
+    this.load.audio(ASSET_KEYS.AUDIO.SFX_DAMAGE, SFX_URLS.DAMAGE)
+    this.load.audio(ASSET_KEYS.AUDIO.SFX_SHOOT, SFX_URLS.SHOOT)
+    this.load.audio(ASSET_KEYS.AUDIO.SFX_CHECKPOINT, SFX_URLS.CHECKPOINT)
+    this.load.audio(ASSET_KEYS.AUDIO.SFX_ENEMY_HIT, SFX_URLS.ENEMY_HIT)
+    this.load.audio(ASSET_KEYS.AUDIO.SFX_JUMP, SFX_URLS.JUMP)
+    this.load.audio(ASSET_KEYS.AUDIO.SFX_PLAYER_DIE, SFX_URLS.PLAYER_DIE)
+    this.load.audio(ASSET_KEYS.AUDIO.SFX_BOSS_DEFEATED, SFX_URLS.BOSS_DEFEATED)
+    this.load.audio(ASSET_KEYS.AUDIO.SFX_BOSS_PHASE_TRANSITION, SFX_URLS.BOSS_PHASE_TRANSITION)
 
     // ---- World-strip 真实素材：迭代所有 strip 关卡（demo + boss），凡是声明了 url 的都 preload ----
     // 未声明 url 的仍由 create() 里的 generateWorldStripTextures 生成占位纹理。
@@ -223,12 +236,15 @@ export class BootScene extends Phaser.Scene {
     cp.generateTexture('checkpoint', 16, 48)
     cp.destroy()
 
-    // 玩家子弹
+    // 玩家子弹 —— 青绿色光线
+    // 三层叠色模拟光晕：外层深青绿 → 中层亮青绿 → 核心近白色高光
     const b = this.make.graphics({ x: 0, y: 0 })
-    b.fillStyle(0xffee33, 1)
+    b.fillStyle(0x00b894, 1) // 外层：深青绿光晕
     b.fillRect(0, 0, 8, 4)
-    b.fillStyle(0xffffcc, 1)
-    b.fillRect(4, 1, 4, 2)
+    b.fillStyle(0x33ffc8, 1) // 中层：亮青绿
+    b.fillRect(1, 1, 6, 2)
+    b.fillStyle(0xe6fff5, 1) // 核心：白绿高光
+    b.fillRect(2, 1, 4, 2)
     b.generateTexture('bullet', 8, 4)
     b.destroy()
   }

@@ -12,7 +12,7 @@
  */
 
 import * as Phaser from 'phaser'
-import { EVENT_KEYS, GAME_CONFIG, PLAYER_TUNING } from '@/contents/constants'
+import { ASSET_KEYS, AUDIO_TUNING, EVENT_KEYS, GAME_CONFIG, PLAYER_TUNING } from '@/contents/constants'
 import type {
   ActionId,
   CapabilityId,
@@ -24,6 +24,7 @@ import type {
 import { useEventBus } from '@/runtime'
 import type { CameraDirector } from '@/contents/systems/camera-director'
 import type { Capability } from './capabilities/capability'
+import { playSfx } from '@/contents/systems/sfx'
 
 const eventBus = useEventBus()
 
@@ -278,8 +279,15 @@ export class Player {
     const body = this.sprite.body as Phaser.Physics.Arcade.Body
     body.setVelocity(0, 0)
     body.setAllowGravity(false)
+    // **死后关掉 body**：Arcade 的 collide/overlap 在 body.enable=false 时会直接
+    // 跳过这个 body，从源头掐掉"玩家已经死了但 Matrix 弹幕这一帧还扫到他"的
+    // 连锁反应 —— damage() 的 `if (!_alive)` 虽然能吞掉伤害数值，但 PhaseController
+    // 已经跑过一次 transition(RESPAWN)；若此时 scene 正在 shutdown 中间态，
+    // 第二次转 phase 会在 `physics.world.pause()` 崩。respawn() 里再手动 enable。
+    body.enable = false
     this.sprite.setTint(0xff4444)
     eventBus.emit(EVENT_KEYS.PLAYER_DIED, { cause } satisfies PlayerDiedPayload)
+    playSfx(this.scene, ASSET_KEYS.AUDIO.SFX_PLAYER_DIE, AUDIO_TUNING.SFX_PLAYER_DIE_VOLUME)
   }
 
   /**
@@ -291,6 +299,9 @@ export class Player {
     this.sprite.setVelocity(0, 0)
     this.sprite.clearTint()
     const body = this.sprite.body as Phaser.Physics.Arcade.Body
+    // 恢复 die() 里关掉的 body —— 不开这个，collide/overlap 都跳过玩家，
+    // 复活后会"穿过一切"。
+    body.enable = true
     // isFlying 由 FlyCapability.attach/detach 管；但若它仍挂着（跨重生保留飞行），
     // 保持重力关闭与否 = 当前是否飞行。这里不强行开启重力，以免干扰 FlyCapability。
     if (!this.isFlying) {

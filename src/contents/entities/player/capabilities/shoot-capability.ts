@@ -7,9 +7,10 @@
  */
 
 import * as Phaser from 'phaser'
-import { ACTION_IDS, PLAYER_TUNING } from '@/contents/constants'
+import { ACTION_IDS, ASSET_KEYS, AUDIO_TUNING, PLAYER_TUNING } from '@/contents/constants'
 import type { ActionId, CapabilityId } from '@/contents/types'
 import type { BulletPool } from '@/contents/entities/projectile/bullet-pool'
+import { playSfx } from '@/contents/systems/sfx'
 import type { Capability, CapabilityContext } from './capability'
 import type { Player } from '../player'
 
@@ -50,5 +51,9 @@ export class ShootCapability implements Capability {
     const muzzleY = this.player.sprite.y - 4
 
     this.pool.fire(muzzleX, muzzleY, PLAYER_TUNING.BULLET_SPEED * dir, 0)
+    // 短音效：每次成功 fire 跟一声。冷却已经保证至少间隔 FIRE_COOLDOWN_MS，
+    // 连射不会把 SoundManager 拉爆；真没 mp3 也是静默 no-op。
+    playSfx(this.scene, ASSET_KEYS.AUDIO.SFX_SHOOT, AUDIO_TUNING.SFX_SHOOT_VOLUME)
+    console.log('ShootCapability: shoot: ', this.scene.time.now)
   }
 }
