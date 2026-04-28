@@ -143,12 +143,12 @@ src/
 
 关卡 / 技能 / 对话 / boss 都是 **TS `as const` discriminated union**，不是 JSON、不是 Tiled。
 
-- 关卡：[`src/contents/data/levels/`](./src/contents/data/levels/) — `level-01.ts`（loop=true 草原 demo）、`level-02.ts`（space biome）、`world-strip-demo.ts`（线性 7 图美术关卡）、`world-strip-boss.ts`（终局 boss 单图场景）。
+- 关卡：[`src/contents/data/levels/`](./src/contents/data/levels/) — `world-strip-demo.ts`（线性 7 图 runner 关卡）、`world-strip-boss.ts`（终局 boss 单图场景）。
 - 技能：[`src/contents/data/skills/skill-registry.ts`](./src/contents/data/skills/skill-registry.ts) — `SkillId → SkillDef`。
 - 对话：[`src/contents/data/dialogues/`](./src/contents/data/dialogues/) — sage / warrior + `DIALOGUE_REGISTRY` 索引。
 - Boss：[`src/contents/data/bosses/`](./src/contents/data/bosses/) — `boss-shadow.ts` + `BOSS_REGISTRY`。
 
-**写一个新关卡**就读 `level-01.ts` —— 100 行不到，从 `id` / `width` / `biome` / `scroll` 一路看到 `segments[]`，下一关一抄就上线。
+**写一个新关卡**就读 `world-strip-demo.ts` —— 从 `WorldStripLoopDef` 的 `images[]` / `extraSegments[]` 起手，复制一个 `WorldStripLoopDef`、跑一遍 `buildWorldStripLevel`、把它登记进 `LEVEL_REGISTRY` 即可。
 
 ---
 

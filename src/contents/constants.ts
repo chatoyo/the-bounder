@@ -333,7 +333,7 @@ export const PICKUP_IDS = {
 // 所以 ASSET_KEYS.AUDIO 这里只收录需要 Phaser 管理的音频。
 export const ASSET_KEYS = {
   AUDIO: {
-    /** Level 01 BGM —— "Rust City"，GameplayScene 里循环播放 */
+    /** Runner 关卡 BGM —— "Rust City"，GameplayScene 里循环播放 */
     BGM_LEVEL_01: 'bgm-level-01',
     /** Boss 场景 BGM —— ok6.mp3，world-strip-boss 关卡专用 */
     BGM_BOSS: 'bgm-boss',
@@ -371,7 +371,7 @@ export const ASSET_KEYS = {
 export const BGM_URLS = {
   /** 主菜单（home-page）BGM；Vue 层直接 new Audio(...)  */
   MENU: '/bgms/menu.mp3',
-  /** Level 01 BGM；BootScene.preload 里交给 Phaser loader */
+  /** Runner 关卡 BGM；BootScene.preload 里交给 Phaser loader */
   LEVEL_01: '/bgms/1-rust-city.mp3',
   /** Boss 场景 BGM；BootScene.preload 里交给 Phaser loader */
   BOSS: '/bgms/ok6.mp3',
@@ -405,7 +405,7 @@ export const SFX_URLS = {
 export const AUDIO_TUNING = {
   /** 菜单 BGM 默认音量（0-1） */
   MENU_VOLUME: 0.5,
-  /** Level 01 BGM 默认音量（0-1） */
+  /** 关卡 BGM 默认音量（0-1） */
   GAME_VOLUME: 0.45,
   /** 受击短音效音量 —— BGM 之上短促叠一下，稍压低避免盖住音乐 */
   SFX_DAMAGE_VOLUME: 0.55,

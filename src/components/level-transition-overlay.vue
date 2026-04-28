@@ -7,12 +7,11 @@
  *     期间 Phaser 侧暂停物理并延迟 1600ms 后 scene.restart（见 gameplay-scene.ts
  *     `completeLevel`）。
  *   - LEVEL_STARTED (fromTransition=true) → 面板淡出；新关卡无缝接上。
- *   - 若 LEVEL_COMPLETED.nextLevelId 缺失，说明是游戏结局（demo 中 level-02 → level-01
- *     会循环，所以不会走到这条），展示 "游戏完成" 文案，不自动关闭。
+ *   - 若 LEVEL_COMPLETED.nextLevelId 缺失，说明是游戏结局，展示 "游戏完成" 文案，不自动关闭。
  *
  * 设计边界：
  *   - 完全靠事件驱动；不读 router / 不访问 Phaser 实例。
- *   - 关卡 id → 显示名的映射就地维护（demo 阶段够用，正式游戏再抽成数据）。
+ *   - 直接展示 levelId；未来要加显示名时再扩 LEVEL_COMPLETED payload 自带 displayName。
  */
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { BOSS_TRANSITION_LEVEL_ID, EVENT_KEYS } from '@/contents/constants'
@@ -24,20 +23,12 @@ import { useEventBus } from '@/runtime'
 
 const eventBus = useEventBus()
 
-/** 关卡 id → 人类友好显示名。若未登记则 fallback 到 id 本身。 */
-const LEVEL_DISPLAY_NAME: Readonly<Record<string, string>> = {
-  'level-01': '草原晨跑',
-  'level-02': '影之洞窟',
-}
-
 const visible = ref(false)
 const currentLevelId = ref('')
 const nextLevelId = ref<string | undefined>(undefined)
 
-const currentName = computed(() => LEVEL_DISPLAY_NAME[currentLevelId.value] ?? currentLevelId.value)
-const nextName = computed(() =>
-  nextLevelId.value ? LEVEL_DISPLAY_NAME[nextLevelId.value] ?? nextLevelId.value : null,
-)
+const currentName = computed(() => currentLevelId.value)
+const nextName = computed(() => nextLevelId.value ?? null)
 const isEnding = computed(() => !nextLevelId.value)
 
 const onLevelCompleted = (payload: unknown) => {

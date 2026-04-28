@@ -1,5 +1,5 @@
 /**
- * NPC Sage 的开场独白 —— 对应 level-01 起点的紫袍老人。
+ * NPC Sage 的开场独白 —— 起点处的紫袍老人。
  *
  * 节点结构：
  *   intro1 → intro2 → question (choice) → [takeOrb | leaveOrb]

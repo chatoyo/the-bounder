@@ -1,5 +1,5 @@
 /**
- * "Shadow" —— world-strip-boss / level-02 的终章 boss。Lovecraftian 机械章鱼外观
+ * "Shadow" —— world-strip-boss 的终章 boss。Lovecraftian 机械章鱼外观
  * （真素材 `public/sprites/boss/boss.png`；缺失时 BootScene 兜底深红椭圆）。
  *
  * HP 分配：maxHp = 30，BossEntity 按 HP 比例切三阶段（≤2/3 → 阶段 2，≤1/3 → 阶段 3）。

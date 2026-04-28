@@ -25,8 +25,8 @@
  *     `firedBossTriggers`，玩家 respawn 后走过 trigger 时 boss 会重新登场。
  *
  * 接入流程（作者视角）：
- *   - `LEVEL_REGISTRY`（gameplay-scene.ts）按 id 收录；
- *   - `WORLD_STRIP_LEVELS`（world-strip-demo.ts）收录同一个 id → BuiltWorldStripLevel；
+ *   - `data/levels/index.ts` 的 `LEVEL_DEFINITIONS` 数组追加一行 `{ build, stripDef, bgmKey? }`
+ *     即可同时进 `LEVEL_REGISTRY` / `WORLD_STRIP_LEVELS` / `LEVEL_BGM` / `ALL_WORLD_STRIP_DEFS`；
  *   - `BootScene.preload` 循环所有 strip 图片时会顺带 load 本关的 boss.png。
  */
 
@@ -36,7 +36,7 @@ import type {
   LevelDef,
   WorldStripLoopDef,
 } from '@/contents/types'
-import { buildWorldStripLevel } from './world-strip-demo'
+import { buildWorldStripLevel } from './world-strip-builder'
 
 /**
  * 数值约定：

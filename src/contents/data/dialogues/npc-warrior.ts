@@ -1,5 +1,5 @@
 /**
- * NPC Warrior —— 站在 level-01 末端 / level-02 入口的红甲战士。
+ * NPC Warrior —— Boss 战之前的红甲战士守门人。
  * 单轮独白，无分支；按 E 推进至结束，玩家继续前行。
  */
 

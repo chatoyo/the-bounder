@@ -9,9 +9,8 @@
  *   新 scene 的 LEVEL_STARTED 触发本组件淡出。
  *
  * 与 `LevelTransitionOverlay` 的关系：
- *   - LevelTransitionOverlay 处理所有**非 boss** 的 `LEVEL_COMPLETED`（例如
- *     level-02 → level-01 的常规循环），在 `nextLevelId === 'world-strip-boss'`
- *     时它会主动忽略，把舞台让给本组件。
+ *   - LevelTransitionOverlay 处理所有**非 boss** 的 `LEVEL_COMPLETED`，在
+ *     `nextLevelId === 'world-strip-boss'` 时它会主动忽略，把舞台让给本组件。
  *   - 两者 z-index 错开：LevelTransition = z-40；本组件 = z-50，避免万一顺序错位
  *     时 UI 也不会出现"面板叠面板"的尴尬。
  *

@@ -21,19 +21,11 @@ import { useEventBus } from '@/runtime'
 
 const eventBus = useEventBus()
 
-/** 关卡 id → 人类友好名；与 LevelTransitionOverlay 保持同一份映射 */
-const LEVEL_DISPLAY_NAME: Readonly<Record<string, string>> = {
-  'level-01': '草原晨跑',
-  'level-02': '影之洞窟',
-}
-
 const visible = ref(false)
 const bossName = ref('')
 const nextLevelId = ref<string | undefined>(undefined)
 
-const nextName = computed(() =>
-  nextLevelId.value ? LEVEL_DISPLAY_NAME[nextLevelId.value] ?? nextLevelId.value : null,
-)
+const nextName = computed(() => nextLevelId.value ?? null)
 
 /** 12 道装饰光束，用 computed 稳定顺序避免 Transition 抖动 */
 const beams = computed(() => Array.from({ length: 12 }, (_, i) => i))
