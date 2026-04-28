@@ -3,7 +3,7 @@
 Project conventions for AI coding agents working on
 `momakoding-jam-starter-web` — a Vue 3 + Phaser 4 + TypeScript Game Jam starter.
 
-> **Two-file split.** This file (`AGENTS.md`) holds the stable **rules** (sections 1–12). The living **codebase state** — directory map, scene / event / asset / route / store registries, WIP claims, decision log, and change log — lives in the sibling file [`CODEBASE_STATE.md`](./CODEBASE_STATE.md). All `§13.x` and `§14` references in this file point into that sibling. Agents **read** it freely while coding; edits happen only in a user-initiated pre-commit sync (see §0).
+> **Two-file split.** This file (`AGENTS.md`) holds the stable **rules** (sections 1–12). The sibling [`CODEBASE_STATE.md`](./CODEBASE_STATE.md) holds the project's *history*: directory map (top-level only), WIP claims (§13.9), decision log (§13.10), and change log (§14). It does **not** duplicate scene / event / asset / type registries — those live as `as const` objects in `src/contents/constants.ts` and `src/contents/types.ts` and are discovered by grep (see `CODEBASE_STATE.md` §13.2 for the lookup map). Agents read the sibling freely while coding; edits happen only in a user-initiated pre-commit sync (see §0).
 
 ---
 
@@ -11,37 +11,34 @@ Project conventions for AI coding agents working on
 
 ### Doc edit policy (read this first)
 
-- **Do NOT modify `CODEBASE_STATE.md` during feature work.** Finish the code. Do not bump `Last updated` dates, do not append to §13 / §14 / §13.10, do not move "WIP" rows — not as part of the same turn you wrote the code.
-- **`CODEBASE_STATE.md` is edited only when the user explicitly asks**, typically right before they request a commit. Common phrasings that unlock doc edits: *"update the codebase state"*, *"sync the registry"*, *"prep for commit"*, *"fill in the change log"*. Without an explicit request, leave the doc alone.
-- **When the user does ask**, batch all deferred updates from the session into one coherent §13 + §14 edit in `CODEBASE_STATE.md` (see "Pre-commit doc sync" below). Still respect the other rules in this section (no silent deletes, decision log rows for non-obvious trade-offs, etc.).
-- If you *discover* that §13 is already wrong (registry doesn't match the current code) while doing unrelated work, still don't auto-edit: mention the drift in your normal response so the user can decide when to correct it.
+- **Do NOT modify `CODEBASE_STATE.md` during feature work.** Finish the code. Do not bump `Last updated` dates, do not append to §13.9 / §13.10 / §14, do not move "WIP" rows — not as part of the same turn you wrote the code.
+- **`CODEBASE_STATE.md` is edited only when the user explicitly asks**, typically right before they request a commit. Common phrasings that unlock doc edits: *"update the codebase state"*, *"sync the codebase state"*, *"prep for commit"*, *"fill in the change log"*. Without an explicit request, leave the doc alone.
+- **When the user does ask**, batch all deferred updates from the session into one coherent edit in `CODEBASE_STATE.md` (see "Pre-commit doc sync" below). Still respect the other rules in this section (decision log rows for non-obvious trade-offs, etc.).
 - **`AGENTS.md` (this file) changes only when the user asks to change a rule.** Feature work never touches it.
 
 ### The contract
 
-1. **Before coding**, skim §1–§12 of this file once per session, then read the §13 subsection(s) in `CODEBASE_STATE.md` relevant to your task.
-2. **While coding**, treat `CODEBASE_STATE.md` §13 tables as the authoritative list for *reading*. Check them before adding scene keys / event keys / asset keys / routes / stores so other agents don't collide — but don't write to the doc yet. If a new key conflicts with §13, pick a different one; if §13 is clearly stale, raise it in chat.
-3. **After coding**, **do not edit either doc.** Keep a short mental (or scratchpad) list of what would need to change in §13 / §14 / §13.10 so you can produce a clean batch when the user asks.
+1. **Before coding**, skim §1–§12 of this file once per session, then check `CODEBASE_STATE.md` §13.9 (WIP claims) and §13.10 (decision log) for anything relevant to your task. The directory map (§13.1) is a useful orientation read on first touch of an area.
+2. **While coding**, the canonical *registry* of names is the code itself: grep `src/contents/constants.ts` (scene / event / asset / SFX / BGM / tunable / ID keys), `src/contents/types.ts` (shared types), `src/router/index.ts` (routes). `CODEBASE_STATE.md` §13.2 has the full grep map. Before adding a new key, confirm it doesn't exist in the relevant `as const` object — don't rely on the doc for this.
+3. **After coding**, **do not edit either doc.** Keep a short mental (or scratchpad) list of what would need to change in §13.9 / §13.10 / §14 so you can produce a clean batch when the user asks.
 4. **Pre-commit doc sync (user-initiated only).** When the user explicitly asks to update the codebase state, do all of:
-   - Update the affected §13 table(s) in `CODEBASE_STATE.md` for everything that landed since the last sync.
-   - Bump `Last updated` in each touched subsection to today's date.
-   - Append a single-line entry to §14 (Change Log) per coherent change, newest at the top.
-   - If any change introduced a non-obvious trade-off (physics engine swap, asset pipeline change, new dependency, etc.), add a row to §13.10 (Decision Log). Never silently re-decide past choices.
+   - Append a single-line entry to §14 (Change Log) per coherent change, newest at the top, with date prefix.
+   - If any change introduced a non-obvious trade-off (physics engine swap, asset pipeline change, new dependency, shutdown-safety pattern, etc.), add a row to §13.10 (Decision Log). Never silently re-decide past choices.
+   - If §13.1 (directory map) drifted at the *folder* level (new top-level directory under `src/`, new asset folder under `public/`), update it. Don't enumerate individual new files — the directory map is intentionally folder-level only.
+   - Update §13.9 (WIP) if the work claimed a multi-turn area: strikethrough the row when done.
 
 ### Conflict-avoidance rules
 
-- **Namespaces are unique.** Scene keys, event keys, asset keys, and route paths must be unique globally. Check `CODEBASE_STATE.md` §13.3 / §13.5 / §13.6 / §13.2 before adding.
+- **Namespaces are unique.** Scene keys, event keys, asset keys, route paths, store names must be unique globally. Confirm by grepping `src/contents/constants.ts` / `src/router/index.ts` / `src/stores/` — not by reading `CODEBASE_STATE.md`.
 - **One owner per feature.** When you start a multi-turn feature, note it in chat so other agents know you're claiming that area. The §13.9 WIP row lands during the next user-initiated doc sync — do not add it preemptively.
-- **No silent deletes.** If you delete code, when the doc sync happens, move the registry row to a `~~strikethrough~~` line at the end of the table rather than removing it, so reviewers see history.
-- **No duplication of source-of-truth values.** Registries point to files; actual values (magic numbers, event names) live in TypeScript `as const` objects. If you find a mismatch, the code wins and §13 must be corrected *at the next doc sync*.
-- **Atomic updates.** One feature → one coherent §13 + §14 edit, applied at commit time. Don't batch unrelated refactors into the same doc patch.
+- **Code wins, doc follows.** `CODEBASE_STATE.md` is human-curated history; if it ever conflicts with the code, the code is right. There is no "registry to keep in sync" anymore — just the change log + decisions.
+- **Atomic doc updates.** One feature → one coherent §13.10 / §14 edit at commit time. Don't batch unrelated refactors into the same doc patch.
 
 ### Read-before-write checklist (copy into your plan)
 
-- [ ] Read `CODEBASE_STATE.md` §13.1 (directory map) to locate the right folder.
-- [ ] Read the registry table(s) for the layer I'm touching (scenes? events? assets?).
-- [ ] Confirm my new keys don't already exist.
-- [ ] Confirm nothing in §13.9 (WIP) is already claiming this area.
+- [ ] Skim `CODEBASE_STATE.md` §13.1 if I'm touching an unfamiliar folder, and §13.9 (WIP) to make sure no one's claimed this area.
+- [ ] Grep `src/contents/constants.ts` (or `types.ts` / `router/index.ts`) for any new key I plan to add — confirm no collision.
+- [ ] If a relevant decision exists in §13.10, follow it; if my approach contradicts one, raise it in chat before re-deciding.
 - [ ] Remember: do NOT edit `CODEBASE_STATE.md` or `AGENTS.md` in this turn. Save doc updates for when the user asks.
 
 ---
@@ -64,7 +61,7 @@ The current `src/pages/game-demo/` is a **reference implementation** (platformer
 | Bundler | Vite 8 | `@` alias → `./src` (see `vite.config.ts`) |
 | Styling | Tailwind CSS **v4** (`@tailwindcss/vite`) + `tw-animate-css` | Atomic-first; see §10 |
 | Routing | `vue-router@4` with `createWebHashHistory` | Routes in `src/router/index.ts` |
-| State | `ref` / `reactive` for UI; Pinia (+ persisted-state plugin) for cross-page state; Phaser `Registry` or EventBus for Game ↔ UI | See §13.8 |
+| State | `ref` / `reactive` for UI; Pinia (+ persisted-state plugin) for cross-page state; Phaser `Registry` or EventBus for Game ↔ UI | Pinia mounted in `main.ts`; no stores defined yet (cross-level state passed via `IGameplaySceneData.unlockedSkills`) |
 | Icons | `lucide-vue-next` | Already installed |
 | Utilities | `@vueuse/core`, `tailwind-merge`, `animate.css` | Already installed |
 
@@ -141,7 +138,7 @@ The current `src/pages/game-demo/` is a **reference implementation** (platformer
 - **Asset keys are constants.** String literals for textures / audio / scenes must not appear outside the `as const` objects in `constants.ts`.
 - **Loop hygiene.** Avoid heavy logic in `Scene.update()`. Delegate to each entity's own `update(time, delta)` method and iterate a group.
 - **Object pools** for anything spawned repeatedly (bullets, particles, enemies waves). Reuse via `group.get()` / `setActive(false).setVisible(false)`.
-- **Typed events.** When an EventBus payload becomes non-trivial, add a type to §13.7 and use it at both ends.
+- **Typed events.** When an EventBus payload becomes non-trivial, define a named type in `src/contents/types.ts` and use it at both ends.
 - **No `var`.** Always `const`, `let` only when reassignment is real.
 
 ---
@@ -237,14 +234,14 @@ Full troubleshooting catalog: `.clinerules/02-trouble-shoot.md`.
 
 ---
 
-## 13. Codebase State — moved
+## 13. Codebase State — moved (and trimmed)
 
-The living registry (directory map, routes, scenes, entities, event keys, asset keys, shared types, stores, WIP claims, decision log) has been extracted to [`CODEBASE_STATE.md`](./CODEBASE_STATE.md) at the repo root. Read it freely; edit it only in a user-initiated pre-commit sync per §0.
+[`CODEBASE_STATE.md`](./CODEBASE_STATE.md) at the repo root holds the project's *history*: §13.1 directory map (top-level only), §13.2 source-of-truth pointer map (where to grep for what), §13.9 WIP claims, §13.10 decision log, §14 change log. The old per-namespace registries (§13.2 routes / §13.3 scenes / §13.4 entities / §13.5 events / §13.6 assets / §13.7 types / §13.8 stores) were retired on 2026-04-28 — those names live as `as const` objects in `src/contents/constants.ts` and in `src/contents/types.ts`, and are discovered by grep, not by reading the doc.
 
-Subsections (`§13.1` … `§13.10`) referenced elsewhere in this file all live in that sibling document.
+Read the sibling freely; edit it only in a user-initiated pre-commit sync per §0.
 
 ---
 
 ## 14. Change log — moved
 
-See [`CODEBASE_STATE.md`](./CODEBASE_STATE.md) §14 for the per-change history of the registry above.
+See [`CODEBASE_STATE.md`](./CODEBASE_STATE.md) §14 for the per-change history.
