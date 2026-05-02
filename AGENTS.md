@@ -216,22 +216,23 @@ To get the real viewport size inside a scene, use `this.cameras.main.width / hei
 
 The project is split into four non-overlapping layers. **Import direction is one-way: `pages → runtime/contents → engine`.**
 
-分层的判据是**"另一个 Phaser jam 游戏能不能复用"**，而不是"是否引用 Phaser"：engine/ 和 contents/ 都允许 import Phaser，只是抽象层级不同。
+The layering criterion is "could another Phaser jam game reuse this?" — not "does it import Phaser". Both `engine/` and `contents/` may import Phaser; they differ in abstraction level.
 
-- `src/engine/` — **引擎层**。UI 无关、**具体游戏**无关的 Phaser 薄封装（`GameShell`、`GameEventBus`、`SHELL_DEFAULTS`、`EventCallback`）。换游戏不改。**不 import 任何项目内模块**。
-- `src/contents/` — **游戏内容层**。UI 无关、**与 Phaser 耦合**（scenes 继承 `Phaser.Scene`、用 physics/input）但与 Vue/DOM 解耦的游戏世界：`constants.ts` 场景/事件/数值、`types.ts`、`scenes/`、`entities/`、`systems/`、`data/`。全项目**唯一**的 SCENE_KEYS / EVENT_KEYS / GAME_CONFIG / SCROLL_TUNING / PARALLAX_FACTORS 源头。
-- `src/runtime/` — **运行时胶水层**。Vue 侧模块级单例（`useGame()` / `useEventBus()`），把 engine 的类实例包装成应用生命周期内的全局服务。不持有游戏数据。
-- `src/composables/` — **真·Vue composables**。`useXxx()` 返回 `Ref` / `Reactive` 或依赖组件生命周期的 hook；不是 `useXxx()` 的单例服务请放到 `runtime/`。
-- `src/components/` — 全局可复用的 UI 原语（按钮、标签、面板、HUD widget）。
-- `src/pages/` — 路由级组件。page 变复杂时，按 page 名建子目录（`pages/game-demo/` 即示例）。
+- `src/engine/` — **Engine layer.** UI-agnostic, game-agnostic thin Phaser wrapper (`GameShell`, `GameEventBus`, `SHELL_DEFAULTS`, `EventCallback`). Unchanged when switching games. **Imports nothing from inside the project.**
+- `src/contents/` — **Game content layer.** UI-agnostic, **Phaser-coupled** (scenes extend `Phaser.Scene`, use physics/input) but decoupled from Vue/DOM: `constants.ts` (scenes/events/tunables), `types.ts`, `scenes/`, `entities/`, `systems/`, `data/`. The project's **sole** source of truth for SCENE_KEYS / EVENT_KEYS / GAME_CONFIG / SCROLL_TUNING / PARALLAX_FACTORS.
+- `src/runtime/` — **Runtime glue layer.** Vue-side module-level singletons (`useGame()` / `useEventBus()`), wrapping engine class instances into app-lifecycle global services. Holds no game data.
+- `src/composables/` — **True Vue composables.** `useXxx()` returning `Ref` / `Reactive` or hooks bound to component lifecycle. Singleton services that aren't lifecycle-bound belong in `runtime/`.
+- `src/components/` — Globally reusable UI primitives (buttons, labels, panels, HUD widgets).
+- `src/pages/` — Route-level components. When a page grows complex, create a subdirectory named after the page (`pages/game-demo/` is an example).
 - All `props` typed with TypeScript; all events typed with `defineEmits<...>()`.
 
-**依赖方向禁忌：**
-- `engine/` 不能 import `contents/` / `runtime/` / `pages/`。
-- `contents/` 不能 import `pages/`（但可以 import `engine/` 和 `runtime/`）。
-- 出现反向依赖说明分层错了。
+**Forbidden dependency directions:**
 
-**`runtime/` → `contents/` 必须走深路径。** runtime 文件只能写 `import ... from "@/contents/constants"` / `"@/contents/types"`，**禁止走 `@/contents` 桶导出**。原因：`contents/scenes/*` 顶层有 `const eventBus = useEventBus()` / `const game = useGame()` 这类模块副作用，经 `@/contents` 桶会把 scenes 顺带加载进来；而 scenes 又反向 import `@/runtime`，于是 runtime 尚未初始化完成时 scenes 已经在调 `useGame()`，触发 ES 模块循环启动。现用范例：`src/runtime/game.ts`。
+- `engine/` must not import `contents/` / `runtime/` / `pages/`.
+- `contents/` must not import `pages/` (but may import `engine/` and `runtime/`).
+- A reverse dependency means the layering is wrong.
+
+**`runtime/` → `contents/` must use deep paths.** Runtime files may only write `import ... from "@/contents/constants"` / `"@/contents/types"` — **never the `@/contents` barrel export**. Reason: `contents/scenes/*` has module-level side effects like `const eventBus = useEventBus()` / `const game = useGame()` at the top level; the barrel re-export would eagerly pull in scenes, and since scenes import `@/runtime` in turn, runtime would not have finished initializing when scenes call `useGame()`, triggering an ES module circular startup. Working example: `src/runtime/game.ts`.
 
 ---
 
