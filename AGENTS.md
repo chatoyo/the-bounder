@@ -104,6 +104,20 @@ The current `src/pages/game-demo/` is a **reference implementation** (platformer
 - **Phaser owns**: render loop, physics, collisions, keyboard/gamepad input for gameplay, timers inside a scene, scene transitions.
 - **EventBus** (`src/engine/event-bus/` with Vue-side singleton at `src/runtime/event-bus.ts`) is the *only* channel between the two worlds.
 
+### Canvas size resolution (画布尺寸分层决策)
+
+画布使用 Phaser `Scale.RESIZE` 模式，运行时自动跟随父容器（= 全屏）。初始分辨率由分层 fallback 决定：
+
+| 优先级 | 来源 | 说明 |
+|---|---|---|
+| 1（最高） | 场景内 `this.scale.resize(w, h)` | 临时覆盖，用于特殊场景需要固定画幅时 |
+| 2 | `GAME_CONFIG.WIDTH / HEIGHT`（contents 层） | 游戏设计基准分辨率；runtime 的 `resolveCanvasSize()` 在容器未布局时使用 |
+| 3（最低） | `SHELL_DEFAULTS`（engine 层） | 引擎内部兜底，几乎不会被用到 |
+
+决策逻辑在 `src/runtime/game.ts` 的 `resolveCanvasSize(container)` 函数：优先取容器 `clientWidth/clientHeight`，为 0 时 fallback 到 `GAME_CONFIG`。结果传给 `GameShell.createGameShell` 的 `size` 参数。
+
+场景内获取真实视口尺寸：`this.cameras.main.width / height`，不要硬编码 `GAME_CONFIG.WIDTH/HEIGHT` 做布局计算。
+
 ---
 
 ## 4. Phaser + TS integration rules
