@@ -91,8 +91,13 @@ export const EVENT_KEYS = {
 } as const
 
 // ---- 世界配置（与画幅 / 全局物理相关） ----
+// WIDTH / HEIGHT 是设计基准分辨率（fallback）。实际画布尺寸由 Phaser Scale.RESIZE
+// 模式自动跟随父容器（= 屏幕大小）。场景内通过 `this.cameras.main.width/height`
+// 获取真实视口尺寸，不要硬编码这两个值做布局计算。
 export const GAME_CONFIG = {
+  /** 设计基准宽度（fallback），实际运行时画布跟随屏幕 */
   WIDTH: 800,
+  /** 设计基准高度（fallback），实际运行时画布跟随屏幕 */
   HEIGHT: 600,
   GRAVITY: 1100,
   /** 摔出世界下沿多少像素算死亡 */

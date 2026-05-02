@@ -7,7 +7,7 @@
  *   - `boot/player-anims.ts` —— 全局 'player-run' 动画注册
  */
 import * as Phaser from 'phaser'
-import { GAME_CONFIG, SCENE_KEYS } from '../constants'
+import { SCENE_KEYS } from '@/contents/constants'
 import { useGame } from '@/runtime'
 import { preloadAssets } from './boot/asset-loader'
 import { generatePlaceholderTextures } from './boot/texture-factory'
@@ -21,17 +21,20 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload(): void {
-    const { WIDTH: width, HEIGHT: height } = GAME_CONFIG
+    // 使用相机真实视口尺寸，不硬编码 GAME_CONFIG（画布已是全屏 RESIZE 模式）
+    const cam = this.cameras.main
+    const cx = cam.width / 2
+    const cy = cam.height / 2
 
     const progressBar = this.add.graphics()
     const progressBox = this.add.graphics()
     progressBox.fillStyle(0x222222, 0.8)
-    progressBox.fillRect(width / 2 - 160, height / 2 - 15, 320, 30)
+    progressBox.fillRect(cx - 160, cy - 15, 320, 30)
 
     this.load.on('progress', (value: number) => {
       progressBar.clear()
       progressBar.fillStyle(0x00ff88, 1)
-      progressBar.fillRect(width / 2 - 150, height / 2 - 10, 300 * value, 20)
+      progressBar.fillRect(cx - 150, cy - 10, 300 * value, 20)
     })
 
     this.load.on('complete', () => {

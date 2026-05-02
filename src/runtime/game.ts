@@ -2,7 +2,7 @@ import type { EventCallback } from "@/engine";
 import { GameShell } from "@/engine";
 // 深路径 import：避开 @/contents 桶导出，防止 runtime ↔ contents/scenes 在
 // 模块初始化时绕成循环（scenes 顶层 import 了 @/runtime）。
-import { EVENT_KEYS } from "@/contents/constants";
+import { EVENT_KEYS, GAME_CONFIG } from "@/contents/constants";
 import { useEventBus } from "./event-bus";
 
 const eventBus = useEventBus();
@@ -17,14 +17,31 @@ const ensureShell = (): GameShell => {
   return gameShell;
 };
 
+// ---- 画布尺寸决策 ----
+
+/**
+ * 根据容器实际尺寸计算画布初始大小。
+ * 优先使用容器的 clientWidth/clientHeight（= 屏幕大小，因为容器是全屏的）；
+ * 容器尚未布局完成（宽高为 0）时 fallback 到 GAME_CONFIG 的设计基准值。
+ */
+const resolveCanvasSize = (container: HTMLElement): { width: number; height: number } => {
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  return {
+    width: w > 0 ? w : GAME_CONFIG.WIDTH,
+    height: h > 0 ? h : GAME_CONFIG.HEIGHT,
+  };
+};
+
 // ---- GameShell 生命周期 ----
 
 const initGame = (
-  container: any,
+  container: HTMLElement,
   initialScene: typeof Phaser.Scene
 ) => {
   if (gameShell) return;
-  gameShell = GameShell.createGameShell(container, initialScene);
+  const size = resolveCanvasSize(container);
+  gameShell = GameShell.createGameShell(container, initialScene, size);
 };
 
 const destroyGame = (removeCanvas = true) => {
