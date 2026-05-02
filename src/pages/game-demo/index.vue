@@ -31,6 +31,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { BootScene, GameplayScene } from '@/contents'
 import { useGame } from '@/runtime'
+
 import GameHud from '@/components/game-hud.vue'
 import DialogueOverlay from '@/components/dialogue-overlay.vue'
 import DeathOverlay from '@/components/death-overlay.vue'
@@ -59,10 +60,10 @@ onUnmounted(() => {
 @reference "@/style.css";
 
 .game-demo {
-  @apply relative flex min-h-screen items-center justify-center bg-gray-900;
+  @apply relative flex h-screen w-screen items-center justify-center bg-gray-900 overflow-hidden;
 }
 
 .game-demo__canvas {
-  @apply relative;
+  @apply relative h-full w-full;
 }
 </style>

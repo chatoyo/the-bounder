@@ -8,7 +8,7 @@ interface TeamMember {
 }
 
 const team: TeamMember[] = [
-  { name: 'Sasha', roles: ['策划', '程序', '框架'] },
+  { name: 'Sasha', roles: ['策划', '程序', '框架', '音乐'] },
   { name: 'Archie', roles: ['策划', '程序', '关卡设计'] },
   { name: '小笼', roles: ['策划', '美术', '世界观'] },
 ]
@@ -37,11 +37,7 @@ function goHome() {
         <span class="about-us__member-name">{{ member.name }}</span>
         <span class="about-us__member-sep" aria-hidden="true">//</span>
         <span class="about-us__member-roles">
-          <span
-            v-for="role in member.roles"
-            :key="role"
-            class="about-us__role"
-          >
+          <span v-for="role in member.roles" :key="role" class="about-us__role">
             {{ role }}
           </span>
         </span>
@@ -209,7 +205,7 @@ function goHome() {
   letter-spacing: 0.08em;
 }
 
-.about-us__member + .about-us__member {
+.about-us__member+.about-us__member {
   @apply border-t pt-3;
   border-color: rgba(0, 234, 255, 0.18);
 }
